@@ -15,4 +15,4 @@ A poetry writing environment that provides users with a range of options: highli
 * Highlight grammatical errors.
 * Generate the beginning of a poem on a given topic using tags to make it easier to start.
 * Generate a new line depending on the previous lines, preserving stresses, rhyme and style
-* Newral network that suggests continuations of lines
+* Neural network that suggests continuations of lines
