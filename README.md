@@ -1,18 +1,39 @@
 # ShirPoetRe.b
 
 ## Description
-A poetry writing environment that provides users with a range of options: highlight stress in words, show the rhyme of the poem line, generate a psrt of a poem on demand (for inspiration)
 
-## Use cases
-* A convenient environment for writing text:
-  * [Left bottom angle] Line and symbol of current position
-  * Line counter on the left
-  * Button to change the word style
-  * Button to switch between dark and light modes
-  * "Focus" mode - buton that disable the entire interface so as not to distract you.
-* Work with files: ability to save, create, "save as" and other abilities. Open File explorer
-* Highlight stress in words
-* Highlight grammatical errors.
-* Generate the beginning of a poem on a given topic using tags to make it easier to start.
-* Generate a new line depending on the previous lines, preserving stresses, rhyme and style
-* Neural network that suggests continuations of lines
+**ShirPoetRe.b** is a poetry writing environment designed to assist authors at every stage of the creative process. It combines a distraction-free writing interface with intelligent linguistic tools, including stress highlighting, rhyme detection, and neural network–based poem generation for inspiration and continuation.
+
+The system aims to support both technical precision (meter, rhyme, grammar) and creative flow.
+
+---
+
+## Use Cases
+
+### Writing Environment
+
+* Display current line and cursor position (bottom-left corner)
+* Line numbering panel
+* Text style customization (font, size, formatting)
+* Toggle between dark and light themes
+* **Focus Mode** — hides all interface elements to eliminate distractions
+* Real-time word and character counter
+
+### File Management
+
+* Create, open, save, and “Save As” functionality
+* Integrated file explorer
+* Support for exporting poems in multiple formats (e.g., TXT, PDF)
+
+### Linguistic Assistance
+
+* Highlight stress patterns in words
+* Detect and highlight rhyme schemes across lines
+* Highlight grammatical errors
+* Visualize poetic meter structure
+
+### Neural Network Features
+
+* Generate the beginning of a poem based on user-defined tags or themes
+* Generate a new line that preserves rhyme, stress pattern, and stylistic features of previous lines
+* Intelligent continuation suggestions for incomplete lines
