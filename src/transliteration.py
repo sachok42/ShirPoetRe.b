@@ -1,6 +1,6 @@
 import eng_to_ipa as ipa
 
-vowels = ["a", "o", "e", "i", "u"]
+vowels = "aeiouæɑɒɔəɛɪʊʌ"
 
 rhyme_importance = 1
 vowels_importance = 1
@@ -37,3 +37,4 @@ def ending_rhyme(text1, text2):
 def rate_candidate(candidate, rhyming_word):
     return ending_rhyme(candidate, rhyming_word) * rhyme_importance\
         + vowels_rhyme(candidate, rhyming_word) * vowels_importance
+
