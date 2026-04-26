@@ -123,13 +123,27 @@ class DummyPoetryModel:
         _ = texts
         return self
 
-    def predict(self, context: str, top_k: int = 1) -> str | list[str]:
+    def predict(
+        self,
+        context: str,
+        top_k: int = 1,
+        rhyme_with: str | None = None,
+        target_syllables: int | None = None,
+        forbidden_words: Sequence[str] | None = None,
+    ) -> str | list[str]:
         """Return one next-word guess (or top-k guesses)."""
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
+        if target_syllables is not None and target_syllables < 1:
+            raise ValueError("target_syllables must be >= 1")
 
         tokens = _tokenize(context or "")
-        ranked = self._rank_words(tokens)
+        ranked = self._rank_words(
+            tokens=tokens,
+            rhyme_with=rhyme_with,
+            target_syllables=target_syllables,
+            forbidden_words=forbidden_words,
+        )
 
         if top_k == 1:
             return ranked[0]
@@ -154,20 +168,33 @@ class DummyPoetryModel:
             vocabulary_path=payload.get("vocabulary_path"),
         )
 
-    def _rank_words(self, tokens: list[str]) -> list[str]:
-        if not tokens:
-            shuffled = self.vocabulary.copy()
-            self._rng.shuffle(shuffled)
-            return shuffled
+    def _rank_words(
+        self,
+        tokens: list[str],
+        rhyme_with: str | None = None,
+        target_syllables: int | None = None,
+        forbidden_words: Sequence[str] | None = None,
+    ) -> list[str]:
+        forbidden = {word.lower() for word in (forbidden_words or [])}
+        candidates = [word for word in self.vocabulary if word.lower() not in forbidden]
+        if not candidates:
+            candidates = self.vocabulary.copy()
 
-        target = tokens[-1]
-        target_syllables = _syllable_count(target)
+        if not tokens and rhyme_with is None and target_syllables is None and not forbidden:
+            self._rng.shuffle(candidates)
+            return candidates
+
+        reference = tokens[-1] if tokens else ""
+        rhythm_target = target_syllables if target_syllables is not None else (
+            _syllable_count(reference) if reference else None
+        )
+        rhyme_reference = (rhyme_with or reference or "").lower()
 
         return sorted(
-            self.vocabulary,
+            candidates,
             key=lambda candidate: (
-                0 if self._rhymes(candidate, target) else 1,
-                abs(_syllable_count(candidate) - target_syllables),
+                0 if not rhyme_reference or self._rhymes(candidate, rhyme_reference) else 1,
+                0 if rhythm_target is None else abs(_syllable_count(candidate) - rhythm_target),
                 self._stable_score(candidate),
             ),
         )
@@ -188,8 +215,26 @@ def fit(texts: Sequence[str] | None = None) -> DummyPoetryModel:
     return _MODEL.fit(texts)
 
 
-def predict(context: str, top_k: int = 1) -> str | list[str]:
-    return _MODEL.predict(context, top_k=top_k)
+def predict(
+    context: str,
+    top_k: int = 1,
+    rhyme_with: str | None = None,
+    target_syllables: int | None = None,
+    forbidden_words: Sequence[str] | None = None,
+) -> str | list[str]:
+    return _MODEL.predict(
+        context=context,
+        top_k=top_k,
+        rhyme_with=rhyme_with,
+        target_syllables=target_syllables,
+        forbidden_words=forbidden_words,
+    )
+
+
+def reload_vocabulary(path: str | Path | None = None) -> list[str]:
+    _MODEL.vocabulary_path = path
+    _MODEL.vocabulary = _load_external_vocabulary(path)
+    return _MODEL.vocabulary.copy()
 
 
 def save(path: str | Path) -> None:
@@ -202,4 +247,4 @@ def load(path: str | Path) -> DummyPoetryModel:
     return _MODEL
 
 
-__all__ = ["DummyPoetryModel", "fit", "predict", "save", "load"]
+__all__ = ["DummyPoetryModel", "fit", "predict", "save", "load", "reload_vocabulary"]
