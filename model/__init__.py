@@ -7,7 +7,8 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import random
@@ -101,6 +102,46 @@ def _load_external_vocabulary(path: str | Path | None = None) -> list[str]:
     return tokens
 
 
+def _normalize_counter(raw: object) -> dict[str, int]:
+    if not isinstance(raw, dict):
+        return {}
+
+    normalized: dict[str, int] = {}
+    for token, count in raw.items():
+        token_text = str(token).strip().lower()
+        if not token_text:
+            continue
+        if token_text.startswith("<") and token_text.endswith(">"):
+            continue
+
+        try:
+            count_value = int(count)
+        except (TypeError, ValueError):
+            continue
+
+        if count_value > 0:
+            normalized[token_text] = count_value
+
+    return normalized
+
+
+def _normalize_bigram_counter(raw: object) -> dict[str, dict[str, int]]:
+    if not isinstance(raw, dict):
+        return {}
+
+    normalized: dict[str, dict[str, int]] = {}
+    for previous, next_map in raw.items():
+        previous_text = str(previous).strip().lower()
+        if not previous_text:
+            continue
+
+        clean_next = _normalize_counter(next_map)
+        if clean_next:
+            normalized[previous_text] = clean_next
+
+    return normalized
+
+
 @dataclass
 class DummyPoetryModel:
     """A tiny baseline model with the interface we can extend later."""
@@ -108,6 +149,8 @@ class DummyPoetryModel:
     vocabulary: list[str] | None = None
     seed: int = 7
     vocabulary_path: str | Path | None = None
+    unigram_counts: dict[str, int] = field(default_factory=dict, repr=False)
+    bigram_counts: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
@@ -119,8 +162,44 @@ class DummyPoetryModel:
         self.vocabulary = _load_external_vocabulary(self.vocabulary_path)
 
     def fit(self, texts: Sequence[str] | None = None) -> "DummyPoetryModel":
-        """No-op training method for compatibility with future real models."""
-        _ = texts
+        """Learn simple unigram and bigram statistics from text."""
+        if not texts:
+            return self
+
+        unigram = Counter()
+        bigram: dict[str, Counter[str]] = {}
+
+        for text in texts:
+            tokens = _tokenize(text or "")
+            if not tokens:
+                continue
+
+            unigram.update(tokens)
+            for previous, current in zip(tokens, tokens[1:]):
+                if previous not in bigram:
+                    bigram[previous] = Counter()
+                bigram[previous][current] += 1
+
+        self.unigram_counts = {token: int(count) for token, count in unigram.items() if count > 0}
+        self.bigram_counts = {
+            previous: {token: int(count) for token, count in next_counter.items() if count > 0}
+            for previous, next_counter in bigram.items()
+        }
+
+        # Keep vocabulary useful for prediction by adding frequent observed tokens.
+        if self.unigram_counts:
+            known = set(self.vocabulary)
+            added = 0
+            for token, count in unigram.most_common():
+                if count < 2:
+                    break
+                if token not in known:
+                    self.vocabulary.append(token)
+                    known.add(token)
+                    added += 1
+                if added >= 500:
+                    break
+
         return self
 
     def predict(
@@ -154,6 +233,9 @@ class DummyPoetryModel:
         payload = {
             "seed": self.seed,
             "vocabulary_path": str(resolved_vocab_path),
+            "vocabulary": self.vocabulary,
+            "unigram_counts": self.unigram_counts,
+            "bigram_counts": self.bigram_counts,
         }
         Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -162,11 +244,26 @@ class DummyPoetryModel:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         raw_vocabulary = payload.get("vocabulary")
         vocabulary = list(raw_vocabulary) if isinstance(raw_vocabulary, list) else None
-        return cls(
+        model = cls(
             vocabulary=vocabulary,
             seed=int(payload.get("seed", 7)),
             vocabulary_path=payload.get("vocabulary_path"),
         )
+        model.unigram_counts = _normalize_counter(payload.get("unigram_counts"))
+        model.bigram_counts = _normalize_bigram_counter(payload.get("bigram_counts"))
+
+        if model.unigram_counts:
+            known = set(model.vocabulary)
+            for token, _count in sorted(
+                model.unigram_counts.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            ):
+                if token not in known:
+                    model.vocabulary.append(token)
+                    known.add(token)
+
+        return model
 
     def _rank_words(
         self,
@@ -180,7 +277,13 @@ class DummyPoetryModel:
         if not candidates:
             candidates = self.vocabulary.copy()
 
-        if not tokens and rhyme_with is None and target_syllables is None and not forbidden:
+        if (
+            not tokens
+            and rhyme_with is None
+            and target_syllables is None
+            and not forbidden
+            and not self.unigram_counts
+        ):
             self._rng.shuffle(candidates)
             return candidates
 
@@ -189,10 +292,31 @@ class DummyPoetryModel:
             _syllable_count(reference) if reference else None
         )
         rhyme_reference = (rhyme_with or reference or "").lower()
+        unigram_total = sum(self.unigram_counts.values())
+        language_vocab_size = max(len(self.unigram_counts), 1)
+        next_counts = self.bigram_counts.get(reference, {}) if reference else {}
+        next_total = sum(next_counts.values())
+
+        def language_score(candidate: str) -> float:
+            if unigram_total <= 0:
+                return 0.0
+
+            unigram_prob = (
+                self.unigram_counts.get(candidate, 0) + 1
+            ) / (unigram_total + language_vocab_size)
+
+            if not reference:
+                return unigram_prob
+
+            bigram_prob = (next_counts.get(candidate, 0) + 1) / (
+                next_total + language_vocab_size
+            )
+            return 0.75 * bigram_prob + 0.25 * unigram_prob
 
         return sorted(
             candidates,
             key=lambda candidate: (
+                -language_score(candidate),
                 0 if not rhyme_reference or self._rhymes(candidate, rhyme_reference) else 1,
                 0 if rhythm_target is None else abs(_syllable_count(candidate) - rhythm_target),
                 self._stable_score(candidate),
@@ -237,6 +361,10 @@ def reload_vocabulary(path: str | Path | None = None) -> list[str]:
     return _MODEL.vocabulary.copy()
 
 
+def is_fitted() -> bool:
+    return bool(_MODEL.unigram_counts)
+
+
 def save(path: str | Path) -> None:
     _MODEL.save(path)
 
@@ -247,4 +375,12 @@ def load(path: str | Path) -> DummyPoetryModel:
     return _MODEL
 
 
-__all__ = ["DummyPoetryModel", "fit", "predict", "save", "load", "reload_vocabulary"]
+__all__ = [
+    "DummyPoetryModel",
+    "fit",
+    "predict",
+    "save",
+    "load",
+    "reload_vocabulary",
+    "is_fitted",
+]
