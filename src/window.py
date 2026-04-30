@@ -4,6 +4,18 @@ from PySide6.QtWidgets import (
     QMessageBox, QToolBar, QLabel
 )
 from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import Qt
+
+class MyTextEdit(QTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.mainWindow = parent
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+        if event.key() == Qt.Key_Backspace:
+            if self.mainWindow:
+                self.mainWindow.update_cursor_info()
 
 class TextIDE(QMainWindow):
     def __init__(self):
@@ -13,7 +25,7 @@ class TextIDE(QMainWindow):
         self.is_dark_theme = False
 
         # Central widget - text editor
-        self.editor = QTextEdit()
+        self.editor = MyTextEdit()
         self.setCentralWidget(self.editor)
 
         # Cursor position indicator below the editor, on the left side.
@@ -24,6 +36,7 @@ class TextIDE(QMainWindow):
         status.setSizeGripEnabled(False)
         status.addWidget(self.cursor_info)
         self.editor.cursorPositionChanged.connect(self.update_cursor_info)
+        self.editor.textChanged.connect(self.update_cursor_info)
         self.update_cursor_info()
         self.apply_theme()
 
@@ -108,11 +121,18 @@ class TextIDE(QMainWindow):
         self.theme_action.setText("Day Theme" if checked else "Night Theme")
         self.apply_theme()
 
+    def word_char_counter(self):
+        text = self.editor.toPlainText()
+        char_count = len(text)
+        word_count = len(text.split())
+        return char_count, word_count
+
     def update_cursor_info(self):
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.positionInBlock() + 1
-        self.cursor_info.setText(f"Ln {line}, Col {col}")
+        chars, words = self.word_char_counter()
+        self.cursor_info.setText(f"Ln {line}, Col {col}, Words {words}, Chars {chars}")
 
     def new_file(self):
         if not self.editor.toPlainText():
