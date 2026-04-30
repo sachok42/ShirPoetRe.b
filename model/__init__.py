@@ -1,4 +1,4 @@
-"""Minimal poetry next-word model interface.
+"""Transformer-based poetry next-word model interface.
 
 Usage:
     import model
@@ -7,16 +7,38 @@ Usage:
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass, field
 import json
+import math
 from pathlib import Path
 import random
 import re
 from typing import Iterable, Sequence
 
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    TORCH_AVAILABLE = True
+except Exception:
+    torch = None
+    nn = None
+    F = None
+    TORCH_AVAILABLE = False
+
 MODEL_DIR = Path(__file__).resolve().parent
 DEFAULT_VOCAB_PATH = MODEL_DIR / "vocabulary.json"
+DEFAULT_WEIGHTS_PATH = MODEL_DIR / "weights" / "small_poetry_transformer.pt"
+
+DEFAULT_CONFIG = {
+    "max_seq_len": 24,
+    "d_model": 128,
+    "nhead": 4,
+    "num_layers": 2,
+    "ff_dim": 256,
+    "dropout": 0.1,
+}
+
 FALLBACK_VOCABULARY = [
     "night",
     "light",
@@ -35,7 +57,7 @@ VOWELS = set("aeiouyаеёиоуыэюя")
 
 
 def _tokenize(text: str) -> list[str]:
-    return WORD_RE.findall(text.lower())
+    return WORD_RE.findall((text or "").lower())
 
 
 def _syllable_count(word: str) -> int:
@@ -52,7 +74,16 @@ def _resolve_vocab_path(path: str | Path | None) -> Path:
     return MODEL_DIR / candidate
 
 
-def _extract_tokens(payload: object) -> list[str]:
+def _resolve_weights_path(path: str | Path | None) -> Path:
+    if path is None:
+        return DEFAULT_WEIGHTS_PATH
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return MODEL_DIR / candidate
+
+
+def _extract_token_list(payload: object) -> list[str]:
     if isinstance(payload, list):
         return [str(item) for item in payload]
 
@@ -65,207 +96,226 @@ def _extract_tokens(payload: object) -> list[str]:
     return []
 
 
-def _clean_tokens(tokens: Iterable[str]) -> list[str]:
+def _clean_tokens(tokens: Iterable[str], skip: set[str] | None = None) -> list[str]:
+    skip = skip or set()
     seen: set[str] = set()
     cleaned: list[str] = []
 
     for raw_token in tokens:
-        token = raw_token.strip().lower()
-        if not token:
+        token = str(raw_token).strip().lower()
+        if not token or token in skip:
             continue
-
-        # Skip service tokens that are common in train-time vocabularies.
         if token.startswith("<") and token.endswith(">"):
             continue
-
         if token in seen:
             continue
-
         seen.add(token)
         cleaned.append(token)
 
     return cleaned
 
 
-def _load_external_vocabulary(path: str | Path | None = None) -> list[str]:
+def _load_vocabulary_file(path: str | Path | None = None) -> tuple[list[str], str, str]:
     vocab_path = _resolve_vocab_path(path)
+    pad_token = "<pad>"
+    unk_token = "<unk>"
 
     try:
         payload = json.loads(vocab_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return FALLBACK_VOCABULARY.copy()
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return FALLBACK_VOCABULARY.copy(), pad_token, unk_token
 
-    tokens = _clean_tokens(_extract_tokens(payload))
+    if isinstance(payload, dict):
+        special = payload.get("special_tokens")
+        if isinstance(special, dict):
+            pad_token = str(special.get("pad", pad_token)).strip().lower() or "<pad>"
+            unk_token = str(special.get("unk", unk_token)).strip().lower() or "<unk>"
+
+    tokens = _clean_tokens(_extract_token_list(payload), skip={pad_token, unk_token})
     if not tokens:
-        return FALLBACK_VOCABULARY.copy()
+        tokens = FALLBACK_VOCABULARY.copy()
 
-    return tokens
-
-
-def _normalize_counter(raw: object) -> dict[str, int]:
-    if not isinstance(raw, dict):
-        return {}
-
-    normalized: dict[str, int] = {}
-    for token, count in raw.items():
-        token_text = str(token).strip().lower()
-        if not token_text:
-            continue
-        if token_text.startswith("<") and token_text.endswith(">"):
-            continue
-
-        try:
-            count_value = int(count)
-        except (TypeError, ValueError):
-            continue
-
-        if count_value > 0:
-            normalized[token_text] = count_value
-
-    return normalized
+    return tokens, pad_token, unk_token
 
 
-def _normalize_bigram_counter(raw: object) -> dict[str, dict[str, int]]:
-    if not isinstance(raw, dict):
-        return {}
+def _normalize_config(config: dict[str, object] | None) -> dict[str, object]:
+    merged = {**DEFAULT_CONFIG}
+    if isinstance(config, dict):
+        merged.update(config)
 
-    normalized: dict[str, dict[str, int]] = {}
-    for previous, next_map in raw.items():
-        previous_text = str(previous).strip().lower()
-        if not previous_text:
-            continue
-
-        clean_next = _normalize_counter(next_map)
-        if clean_next:
-            normalized[previous_text] = clean_next
-
-    return normalized
+    return {
+        "max_seq_len": int(merged["max_seq_len"]),
+        "d_model": int(merged["d_model"]),
+        "nhead": int(merged["nhead"]),
+        "num_layers": int(merged["num_layers"]),
+        "ff_dim": int(merged["ff_dim"]),
+        "dropout": float(merged["dropout"]),
+    }
 
 
-@dataclass
-class DummyPoetryModel:
-    """A tiny baseline model with the interface we can extend later."""
+if TORCH_AVAILABLE:
 
-    vocabulary: list[str] | None = None
-    seed: int = 7
-    vocabulary_path: str | Path | None = None
-    unigram_counts: dict[str, int] = field(default_factory=dict, repr=False)
-    bigram_counts: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
+    class TransformerNextWordModel(nn.Module):
+        """Small decoder-style transformer for next-word prediction."""
 
-    def __post_init__(self) -> None:
-        self._rng = random.Random(self.seed)
-        if self.vocabulary:
-            cleaned = _clean_tokens(self.vocabulary)
+        def __init__(
+            self,
+            vocab_size: int,
+            pad_id: int,
+            max_seq_len: int,
+            d_model: int,
+            nhead: int,
+            num_layers: int,
+            ff_dim: int,
+            dropout: float,
+        ) -> None:
+            super().__init__()
+            self.pad_id = pad_id
+            self.max_seq_len = max_seq_len
+            self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_id)
+            self.position_embedding = nn.Embedding(max_seq_len, d_model)
+
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=ff_dim,
+                dropout=dropout,
+                batch_first=True,
+            )
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+            self.norm = nn.LayerNorm(d_model)
+            self.output = nn.Linear(d_model, vocab_size)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            # x: [batch, seq_len]
+            seq_len = x.size(1)
+            pos_ids = torch.arange(seq_len, device=x.device).unsqueeze(0).expand_as(x)
+            hidden = self.token_embedding(x) + self.position_embedding(pos_ids)
+
+            # Prevent attending to future positions.
+            causal_mask = torch.triu(
+                torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool),
+                diagonal=1,
+            )
+            pad_mask = x.eq(self.pad_id)
+
+            hidden = self.transformer(
+                hidden,
+                mask=causal_mask,
+                src_key_padding_mask=pad_mask,
+            )
+            hidden = self.norm(hidden)
+            last_hidden = hidden[:, -1, :]
+            return self.output(last_hidden)
+
+else:
+
+    class TransformerNextWordModel:
+        def __init__(self, *args, **kwargs) -> None:
+            raise RuntimeError("PyTorch is required for TransformerNextWordModel")
+
+
+class TransformerPoetryModel:
+    """Transformer-backed next-word predictor with simple API."""
+
+    def __init__(
+        self,
+        vocabulary: list[str] | None = None,
+        vocabulary_path: str | Path | None = None,
+        weights_path: str | Path | None = None,
+        seed: int = 7,
+        config: dict[str, object] | None = None,
+        auto_load_weights: bool = True,
+    ) -> None:
+        self.seed = seed
+        self._rng = random.Random(seed)
+
+        self.vocabulary_path = _resolve_vocab_path(vocabulary_path)
+        self.weights_path = _resolve_weights_path(weights_path)
+        self.config = _normalize_config(config)
+
+        if vocabulary:
+            cleaned = _clean_tokens(vocabulary)
             self.vocabulary = cleaned or FALLBACK_VOCABULARY.copy()
+            self.pad_token = "<pad>"
+            self.unk_token = "<unk>"
+        else:
+            self.vocabulary, self.pad_token, self.unk_token = _load_vocabulary_file(
+                self.vocabulary_path
+            )
+
+        self._rebuild_mappings()
+        self._weights_loaded = False
+
+        self.device = None
+        self._model = None
+
+        if TORCH_AVAILABLE:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self._initialize_network()
+
+            if auto_load_weights:
+                self._load_weights_if_available(self.weights_path)
+
+    def _rebuild_mappings(self) -> None:
+        self.itos = [self.pad_token, self.unk_token] + self.vocabulary
+        self.stoi = {token: idx for idx, token in enumerate(self.itos)}
+        self.pad_id = self.stoi[self.pad_token]
+        self.unk_id = self.stoi[self.unk_token]
+
+    def _initialize_network(self) -> None:
+        if not TORCH_AVAILABLE:
             return
 
-        self.vocabulary = _load_external_vocabulary(self.vocabulary_path)
+        self.max_seq_len = int(self.config["max_seq_len"])
+        self._model = TransformerNextWordModel(
+            vocab_size=len(self.itos),
+            pad_id=self.pad_id,
+            max_seq_len=self.max_seq_len,
+            d_model=int(self.config["d_model"]),
+            nhead=int(self.config["nhead"]),
+            num_layers=int(self.config["num_layers"]),
+            ff_dim=int(self.config["ff_dim"]),
+            dropout=float(self.config["dropout"]),
+        ).to(self.device)
 
-    def fit(self, texts: Sequence[str] | None = None) -> "DummyPoetryModel":
-        """Learn simple unigram and bigram statistics from text."""
-        if not texts:
-            return self
+    def _load_weights_if_available(self, path: str | Path | None) -> None:
+        if not TORCH_AVAILABLE:
+            self._weights_loaded = False
+            return
 
-        unigram = Counter()
-        bigram: dict[str, Counter[str]] = {}
+        weights_path = _resolve_weights_path(path)
+        if not weights_path.exists():
+            self._weights_loaded = False
+            return
 
-        for text in texts:
-            tokens = _tokenize(text or "")
-            if not tokens:
-                continue
+        checkpoint = torch.load(weights_path, map_location=self.device)
+        if not isinstance(checkpoint, dict):
+            self._weights_loaded = False
+            return
 
-            unigram.update(tokens)
-            for previous, current in zip(tokens, tokens[1:]):
-                if previous not in bigram:
-                    bigram[previous] = Counter()
-                bigram[previous][current] += 1
+        loaded_config = checkpoint.get("config")
+        if isinstance(loaded_config, dict):
+            self.config = _normalize_config(loaded_config)
+            self._initialize_network()
 
-        self.unigram_counts = {token: int(count) for token, count in unigram.items() if count > 0}
-        self.bigram_counts = {
-            previous: {token: int(count) for token, count in next_counter.items() if count > 0}
-            for previous, next_counter in bigram.items()
-        }
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        try:
+            self._model.load_state_dict(state_dict)
+            self._model.eval()
+            self._weights_loaded = True
+            self.weights_path = weights_path
+        except Exception:
+            self._weights_loaded = False
 
-        # Keep vocabulary useful for prediction by adding frequent observed tokens.
-        if self.unigram_counts:
-            known = set(self.vocabulary)
-            added = 0
-            for token, count in unigram.most_common():
-                if count < 2:
-                    break
-                if token not in known:
-                    self.vocabulary.append(token)
-                    known.add(token)
-                    added += 1
-                if added >= 500:
-                    break
+    def _encode_context(self, context: str) -> list[int]:
+        tokens = _tokenize(context)
+        ids = [self.stoi.get(token, self.unk_id) for token in tokens][-self.max_seq_len :]
+        if len(ids) < self.max_seq_len:
+            ids = [self.pad_id] * (self.max_seq_len - len(ids)) + ids
+        return ids
 
-        return self
-
-    def predict(
-        self,
-        context: str,
-        top_k: int = 1,
-        rhyme_with: str | None = None,
-        target_syllables: int | None = None,
-        forbidden_words: Sequence[str] | None = None,
-    ) -> str | list[str]:
-        """Return one next-word guess (or top-k guesses)."""
-        if top_k < 1:
-            raise ValueError("top_k must be >= 1")
-        if target_syllables is not None and target_syllables < 1:
-            raise ValueError("target_syllables must be >= 1")
-
-        tokens = _tokenize(context or "")
-        ranked = self._rank_words(
-            tokens=tokens,
-            rhyme_with=rhyme_with,
-            target_syllables=target_syllables,
-            forbidden_words=forbidden_words,
-        )
-
-        if top_k == 1:
-            return ranked[0]
-        return ranked[:top_k]
-
-    def save(self, path: str | Path) -> None:
-        resolved_vocab_path = _resolve_vocab_path(self.vocabulary_path)
-        payload = {
-            "seed": self.seed,
-            "vocabulary_path": str(resolved_vocab_path),
-            "vocabulary": self.vocabulary,
-            "unigram_counts": self.unigram_counts,
-            "bigram_counts": self.bigram_counts,
-        }
-        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-    @classmethod
-    def load(cls, path: str | Path) -> "DummyPoetryModel":
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        raw_vocabulary = payload.get("vocabulary")
-        vocabulary = list(raw_vocabulary) if isinstance(raw_vocabulary, list) else None
-        model = cls(
-            vocabulary=vocabulary,
-            seed=int(payload.get("seed", 7)),
-            vocabulary_path=payload.get("vocabulary_path"),
-        )
-        model.unigram_counts = _normalize_counter(payload.get("unigram_counts"))
-        model.bigram_counts = _normalize_bigram_counter(payload.get("bigram_counts"))
-
-        if model.unigram_counts:
-            known = set(model.vocabulary)
-            for token, _count in sorted(
-                model.unigram_counts.items(),
-                key=lambda item: item[1],
-                reverse=True,
-            ):
-                if token not in known:
-                    model.vocabulary.append(token)
-                    known.add(token)
-
-        return model
-
-    def _rank_words(
+    def _fallback_rank(
         self,
         tokens: list[str],
         rhyme_with: str | None = None,
@@ -277,13 +327,7 @@ class DummyPoetryModel:
         if not candidates:
             candidates = self.vocabulary.copy()
 
-        if (
-            not tokens
-            and rhyme_with is None
-            and target_syllables is None
-            and not forbidden
-            and not self.unigram_counts
-        ):
+        if not tokens and rhyme_with is None and target_syllables is None and not forbidden:
             self._rng.shuffle(candidates)
             return candidates
 
@@ -292,36 +336,189 @@ class DummyPoetryModel:
             _syllable_count(reference) if reference else None
         )
         rhyme_reference = (rhyme_with or reference or "").lower()
-        unigram_total = sum(self.unigram_counts.values())
-        language_vocab_size = max(len(self.unigram_counts), 1)
-        next_counts = self.bigram_counts.get(reference, {}) if reference else {}
-        next_total = sum(next_counts.values())
-
-        def language_score(candidate: str) -> float:
-            if unigram_total <= 0:
-                return 0.0
-
-            unigram_prob = (
-                self.unigram_counts.get(candidate, 0) + 1
-            ) / (unigram_total + language_vocab_size)
-
-            if not reference:
-                return unigram_prob
-
-            bigram_prob = (next_counts.get(candidate, 0) + 1) / (
-                next_total + language_vocab_size
-            )
-            return 0.75 * bigram_prob + 0.25 * unigram_prob
 
         return sorted(
             candidates,
             key=lambda candidate: (
-                -language_score(candidate),
                 0 if not rhyme_reference or self._rhymes(candidate, rhyme_reference) else 1,
                 0 if rhythm_target is None else abs(_syllable_count(candidate) - rhythm_target),
                 self._stable_score(candidate),
             ),
         )
+
+    def fit(
+        self,
+        texts: Sequence[str] | None = None,
+        epochs: int = 2,
+        batch_size: int = 128,
+        learning_rate: float = 3e-3,
+    ) -> "TransformerPoetryModel":
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("PyTorch is required for Transformer training")
+        if not texts:
+            return self
+
+        samples: list[tuple[list[int], int]] = []
+        for text in texts:
+            ids = [self.stoi.get(token, self.unk_id) for token in _tokenize(text)]
+            for i in range(1, len(ids)):
+                context = ids[max(0, i - self.max_seq_len) : i]
+                if len(context) < self.max_seq_len:
+                    context = [self.pad_id] * (self.max_seq_len - len(context)) + context
+                samples.append((context, ids[i]))
+
+        if not samples:
+            return self
+
+        x = torch.tensor([context for context, _target in samples], dtype=torch.long, device=self.device)
+        y = torch.tensor([target for _context, target in samples], dtype=torch.long, device=self.device)
+
+        optimizer = torch.optim.AdamW(self._model.parameters(), lr=learning_rate)
+        criterion = nn.CrossEntropyLoss()
+
+        self._model.train()
+        for _epoch in range(max(1, epochs)):
+            permutation = torch.randperm(x.size(0), device=self.device)
+            for start in range(0, x.size(0), max(1, batch_size)):
+                batch_idx = permutation[start : start + max(1, batch_size)]
+                xb = x[batch_idx]
+                yb = y[batch_idx]
+
+                optimizer.zero_grad()
+                logits = self._model(xb)
+                loss = criterion(logits, yb)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+        self._model.eval()
+        self._weights_loaded = True
+        return self
+
+    def predict(
+        self,
+        context: str,
+        top_k: int = 1,
+        rhyme_with: str | None = None,
+        target_syllables: int | None = None,
+        forbidden_words: Sequence[str] | None = None,
+        temperature: float = 1.0,
+    ) -> str | list[str]:
+        if top_k < 1:
+            raise ValueError("top_k must be >= 1")
+        if target_syllables is not None and target_syllables < 1:
+            raise ValueError("target_syllables must be >= 1")
+        if temperature <= 0:
+            raise ValueError("temperature must be > 0")
+
+        tokens = _tokenize(context)
+
+        if not TORCH_AVAILABLE or self._model is None:
+            ranked = self._fallback_rank(tokens, rhyme_with, target_syllables, forbidden_words)
+            return ranked[0] if top_k == 1 else ranked[:top_k]
+
+        context_ids = self._encode_context(context)
+        x = torch.tensor([context_ids], dtype=torch.long, device=self.device)
+
+        self._model.eval()
+        with torch.no_grad():
+            logits = self._model(x)[0] / float(temperature)
+            log_probs = F.log_softmax(logits, dim=-1)
+
+        forbidden = {word.lower() for word in (forbidden_words or [])}
+        candidates = [token for token in self.vocabulary if token.lower() not in forbidden]
+        if not candidates:
+            candidates = self.vocabulary.copy()
+
+        reference = tokens[-1] if tokens else ""
+        rhythm_target = target_syllables if target_syllables is not None else (
+            _syllable_count(reference) if reference else None
+        )
+        rhyme_reference = (rhyme_with or reference or "").lower()
+
+        scored: list[tuple[str, float]] = []
+        for token in candidates:
+            idx = self.stoi.get(token, self.unk_id)
+            score = float(log_probs[idx].item())
+
+            if rhyme_reference and self._rhymes(token, rhyme_reference):
+                score += 0.75
+
+            if rhythm_target is not None:
+                score -= 0.25 * abs(_syllable_count(token) - rhythm_target)
+
+            scored.append((token, score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        tokens_out = [token for token, _score in scored]
+
+        if top_k == 1:
+            return tokens_out[0]
+        return tokens_out[:top_k]
+
+    def save(self, path: str | Path) -> None:
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "format": "poetry_transformer_v1",
+            "seed": self.seed,
+            "config": self.config,
+            "vocabulary_path": str(self.vocabulary_path),
+            "weights_path": str(self.weights_path),
+        }
+
+        if TORCH_AVAILABLE and self._model is not None:
+            payload["model_state_dict"] = self._model.state_dict()
+            torch.save(payload, destination)
+            return
+
+        destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> "TransformerPoetryModel":
+        source = Path(path)
+        if not source.exists():
+            raise FileNotFoundError(f"Model file not found: {source}")
+
+        if TORCH_AVAILABLE:
+            checkpoint = torch.load(source, map_location="cpu")
+        else:
+            checkpoint = json.loads(source.read_text(encoding="utf-8"))
+
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Unsupported model checkpoint format")
+
+        model = cls(
+            seed=int(checkpoint.get("seed", 7)),
+            config=checkpoint.get("config"),
+            vocabulary_path=checkpoint.get("vocabulary_path"),
+            weights_path=source,
+            auto_load_weights=False,
+        )
+
+        if TORCH_AVAILABLE and "model_state_dict" in checkpoint:
+            model._model.load_state_dict(checkpoint["model_state_dict"])
+            model._model.eval()
+            model._weights_loaded = True
+
+        return model
+
+    def reload_vocabulary(self, path: str | Path | None = None) -> list[str]:
+        self.vocabulary_path = _resolve_vocab_path(path)
+        self.vocabulary, self.pad_token, self.unk_token = _load_vocabulary_file(
+            self.vocabulary_path
+        )
+        self._rebuild_mappings()
+
+        if TORCH_AVAILABLE:
+            self._initialize_network()
+            self._load_weights_if_available(self.weights_path)
+
+        return self.vocabulary.copy()
+
+    def is_fitted(self) -> bool:
+        return bool(self._weights_loaded)
 
     @staticmethod
     def _rhymes(word_a: str, word_b: str) -> bool:
@@ -332,11 +529,21 @@ class DummyPoetryModel:
         return sum(ord(char) for char in word)
 
 
-_MODEL = DummyPoetryModel()
+_MODEL = TransformerPoetryModel()
 
 
-def fit(texts: Sequence[str] | None = None) -> DummyPoetryModel:
-    return _MODEL.fit(texts)
+def fit(
+    texts: Sequence[str] | None = None,
+    epochs: int = 2,
+    batch_size: int = 128,
+    learning_rate: float = 3e-3,
+) -> TransformerPoetryModel:
+    return _MODEL.fit(
+        texts=texts,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+    )
 
 
 def predict(
@@ -345,6 +552,7 @@ def predict(
     rhyme_with: str | None = None,
     target_syllables: int | None = None,
     forbidden_words: Sequence[str] | None = None,
+    temperature: float = 1.0,
 ) -> str | list[str]:
     return _MODEL.predict(
         context=context,
@@ -352,35 +560,36 @@ def predict(
         rhyme_with=rhyme_with,
         target_syllables=target_syllables,
         forbidden_words=forbidden_words,
+        temperature=temperature,
     )
 
 
 def reload_vocabulary(path: str | Path | None = None) -> list[str]:
-    _MODEL.vocabulary_path = path
-    _MODEL.vocabulary = _load_external_vocabulary(path)
-    return _MODEL.vocabulary.copy()
+    return _MODEL.reload_vocabulary(path)
 
 
 def is_fitted() -> bool:
-    return bool(_MODEL.unigram_counts)
+    return _MODEL.is_fitted()
 
 
 def save(path: str | Path) -> None:
     _MODEL.save(path)
 
 
-def load(path: str | Path) -> DummyPoetryModel:
+def load(path: str | Path) -> TransformerPoetryModel:
     global _MODEL
-    _MODEL = DummyPoetryModel.load(path)
+    _MODEL = TransformerPoetryModel.load(path)
     return _MODEL
 
 
 __all__ = [
-    "DummyPoetryModel",
+    "TransformerNextWordModel",
+    "TransformerPoetryModel",
     "fit",
     "predict",
     "save",
     "load",
     "reload_vocabulary",
     "is_fitted",
+    "TORCH_AVAILABLE",
 ]
