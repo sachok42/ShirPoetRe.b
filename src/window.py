@@ -1,11 +1,97 @@
 import sys
+from PySide6.QtGui import QIcon, QAction, QPainter, QColor
+from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QTextEdit, QFileDialog,
-    QMessageBox, QToolBar, QLabel
+    QApplication, QMainWindow, QPlainTextEdit, QFileDialog,
+    QMessageBox, QToolBar, QLabel, QWidget
 )
-from PySide6.QtGui import QIcon, QAction
+
+class LineNumberArea(QWidget):
+    """
+    Line enumerator for the written text. Number is written to the left to each text block
+    """
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+
+    def sizeHint(self):
+        return self.editor.line_number_area_size()
+
+    def paintEvent(self, event):
+        self.editor.line_number_area_paint_event(event)
+
+class MyTextEdit(QPlainTextEdit):
+    """
+    Personal class for the Text area. Uses LineNumberArea representative to enumerate and show the line numbers.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.line_number_area = LineNumberArea(self)
+
+        self.document().blockCountChanged.connect(self.update_line_number_area_width)
+        self.verticalScrollBar().valueChanged.connect(self.update_line_number_area)
+        self.cursorPositionChanged.connect(self.update_line_number_area)
+
+        self.update_line_number_area_width()
+
+    def line_number_area_size(self):
+        digits = len(str(self.document().blockCount()))
+        space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
+        return QSize(space, 0)
+
+    def update_line_number_area_width(self):
+        self.setViewportMargins(self.line_number_area_size().width(), 0, 0, 0)
+
+    def update_line_number_area(self):
+        self.line_number_area.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(
+            QRect(cr.left(), cr.top(),
+                  self.line_number_area_size().width(), cr.height())
+        )
+
+    def line_number_area_paint_event(self, event):
+        painter = QPainter(self.line_number_area)
+        painter.fillRect(event.rect(), QColor("#2b2b2b"))
+
+        block = self.document().firstBlock()
+        block_number = 0
+
+        top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+        bottom = top + self.blockBoundingRect(block).height()
+
+        # Enumerate each line of text and write line numbers in the LineNumberArea
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_number + 1)
+                painter.setPen(QColor("#aaaaaa"))
+                painter.drawText(
+                    0, int(top),
+                    self.line_number_area.width() - 5,
+                    self.fontMetrics().height(),
+                    Qt.AlignRight,
+                    number
+                )
+
+            block = block.next()
+            top = bottom
+            bottom = top + self.blockBoundingRect(block).height()
+            block_number += 1
 
 class TextIDE(QMainWindow):
+    """
+    Creates the main window of the IDE.
+    Writes the cursor position and word counter in the bottom left corner.
+    It has a menu and a toolbar for a file management. Also, there is a day/night theme switch.
+    """
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Simple Text IDE")
@@ -13,7 +99,7 @@ class TextIDE(QMainWindow):
         self.is_dark_theme = False
 
         # Central widget - text editor
-        self.editor = QTextEdit()
+        self.editor = MyTextEdit()
         self.setCentralWidget(self.editor)
 
         # Cursor position indicator below the editor, on the left side.
@@ -24,6 +110,7 @@ class TextIDE(QMainWindow):
         status.setSizeGripEnabled(False)
         status.addWidget(self.cursor_info)
         self.editor.cursorPositionChanged.connect(self.update_cursor_info)
+        self.editor.textChanged.connect(self.update_cursor_info)
         self.update_cursor_info()
         self.apply_theme()
 
@@ -73,7 +160,7 @@ class TextIDE(QMainWindow):
         if self.is_dark_theme:
             self.setStyleSheet(
                 "QMainWindow { background-color: #1e1e1e; color: #dcdcdc; }"
-                "QTextEdit { background-color: #1e1e1e; color: #e8e8e8; "
+                "QPlainTextEdit { background-color: #1e1e1e; color: #e8e8e8; "
                 "border: 1px solid #2f2f2f; selection-background-color: #3a6ea5; }"
                 "QToolBar, QStatusBar, QMenuBar, QMenu { background-color: #252526; color: #dcdcdc; }"
                 "QToolBar QToolButton { background-color: #2d2d2d; color: #dcdcdc; "
@@ -89,7 +176,7 @@ class TextIDE(QMainWindow):
         else:
             self.setStyleSheet(
                 "QMainWindow { background-color: #f2f2f2; color: #202020; }"
-                "QTextEdit { background-color: #ffffff; color: #202020; "
+                "QPlainTextEdit { background-color: #ffffff; color: #202020; "
                 "border: 1px solid #cfcfcf; selection-background-color: #cce2ff; }"
                 "QToolBar, QStatusBar, QMenuBar, QMenu { background-color: #f6f6f6; color: #202020; }"
                 "QToolBar QToolButton { background-color: #ffffff; color: #202020; "
@@ -108,11 +195,18 @@ class TextIDE(QMainWindow):
         self.theme_action.setText("Day Theme" if checked else "Night Theme")
         self.apply_theme()
 
+    def word_char_counter(self):
+        text = self.editor.toPlainText()
+        char_count = len(text)
+        word_count = len(text.split())
+        return char_count, word_count
+
     def update_cursor_info(self):
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.positionInBlock() + 1
-        self.cursor_info.setText(f"Ln {line}, Col {col}")
+        chars, words = self.word_char_counter()
+        self.cursor_info.setText(f"Ln {line}, Col {col}, Words {words}, Chars {chars}")
 
     def new_file(self):
         if not self.editor.toPlainText():
