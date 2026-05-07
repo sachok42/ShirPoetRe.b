@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtGui import QIcon, QAction, QPainter, QColor
+from PySide6.QtGui import QIcon, QAction, QPainter, QColor, QKeySequence, QShortcut
 from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPlainTextEdit, QFileDialog,
@@ -97,6 +97,7 @@ class TextIDE(QMainWindow):
         self.setWindowTitle("Simple Text IDE")
         self.setGeometry(100, 100, 800, 600)
         self.is_dark_theme = False
+        self.is_focus_mode = False
 
         # Central widget - text editor
         self.editor = MyTextEdit()
@@ -119,6 +120,9 @@ class TextIDE(QMainWindow):
 
         # Create toolbar
         self.create_toolbar()
+
+        self.focus_shortcut = QShortcut(QKeySequence("F12"), self)
+        self.focus_shortcut.activated.connect(self.toggle_focus_mode)
 
     def create_menu(self):
         menu = self.menuBar()
@@ -155,6 +159,12 @@ class TextIDE(QMainWindow):
         self.theme_action.setCheckable(True)
         self.theme_action.triggered.connect(self.toggle_theme)
         toolbar.addAction(self.theme_action)
+
+        toolbar.addSeparator()
+        self.focus_action = QAction("Focus Mode", self)
+        self.focus_action.setCheckable(True)
+        self.focus_action.triggered.connect(self.toggle_focus_mode)
+        toolbar.addAction(self.focus_action)
 
     def apply_theme(self):
         if self.is_dark_theme:
@@ -194,6 +204,32 @@ class TextIDE(QMainWindow):
         self.is_dark_theme = checked
         self.theme_action.setText("Day Theme" if checked else "Night Theme")
         self.apply_theme()
+
+    def toggle_focus_mode(self):
+        self.is_focus_mode = not (self.is_focus_mode)
+
+        if self.is_focus_mode:
+            # Hide UI elements
+            self.menuBar().hide()
+            for tool in self.findChildren(QToolBar):
+                tool.hide()
+            #self.statusBar().hide()    Add this line to hide word/char counters
+
+            self.showFullScreen()
+            QMessageBox.information(
+                self,
+                "Focus Mode",
+                "Focus Mode is now enabled\n\nPress F12 to exit."
+            )
+
+            self.focus_action.setChecked(True)
+        else:
+            self.menuBar().show()
+            for tool in self.findChildren(QToolBar):
+                tool.show()
+            #self.statusBar().show()    Add this line if you hid it previously in the function
+            self.showNormal()
+            self.focus_action.setChecked(False)
 
     def word_char_counter(self):
         text = self.editor.toPlainText()
