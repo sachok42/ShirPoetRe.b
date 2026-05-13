@@ -1,0 +1,16 @@
+{
+  "format": "poetry_vocabulary_v1",
+  "description": "Default external vocabulary for DummyPoetryModel",
+  "tokens": [
+    "night",
+    "light",
+    "heart",
+    "dream",
+    "sky",
+    "fire",
+    "rain",
+    "song",
+    "echo",
+    "time"
+  ]
+}
