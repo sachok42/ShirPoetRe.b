@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtGui import QIcon, QAction, QPainter, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QAction, QPainter, QColor
 from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPlainTextEdit, QFileDialog,
@@ -121,8 +121,12 @@ class TextIDE(QMainWindow):
         # Create toolbar
         self.create_toolbar()
 
-        self.focus_shortcut = QShortcut(QKeySequence("F12"), self)
-        self.focus_shortcut.activated.connect(self.toggle_focus_mode)
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F12:
+            self.toggle_focus_mode()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def create_menu(self):
         menu = self.menuBar()
