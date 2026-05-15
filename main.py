@@ -42,7 +42,6 @@ class ShirPoetApp(TextIDE):
     def _suggest_word(self):
         """Логика получения и вставки подсказки."""
         context = self.editor.toPlainText()
-
         try:
             # Вызов модели из model/__init__.py
             suggestion = model.predict(context)
