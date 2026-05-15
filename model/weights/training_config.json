@@ -1,0 +1,8 @@
+{
+  "vocab_size": 3808,
+  "max_sequence_len": 16,
+  "sequence_len": 15,
+  "epochs": 150,
+  "batch_size": 128,
+  "source_repo": "https://github.com/Reema-Khaseeb/NLP-poem-generator/tree/main"
+}
