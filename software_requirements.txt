@@ -1,4 +1,6 @@
 PyQt5
 PySide6
+eng-to-ipa
+nltk
 pytest-qt
 pytest
