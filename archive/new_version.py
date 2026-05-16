@@ -26,14 +26,14 @@ from textblob import TextBlob
 # Shared helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _phones(word: str) -> list[str]:
+def phones(word: str) -> list[str]:
     """Return all CMU phone strings for *word* (lower-cased)."""
     return pronouncing.phones_for_word(word.lower())
 
 
-def _syllable_count(word: str) -> int:
+def syllable_count(word: str) -> int:
     """Count syllables via CMU dict; fall back to a vowel-run heuristic."""
-    entries = _phones(word)
+    entries = phones(word)
     if entries:
         return pronouncing.syllable_count(entries[0])
     vowels = "aeiouAEIOU"
@@ -41,25 +41,25 @@ def _syllable_count(word: str) -> int:
     return max(1, count)
 
 
-def _stress_pattern(word: str) -> str:
+def stress_pattern(word: str) -> str:
     """Return a stress string like '10' (primary=1, unstressed=0)."""
-    entries = _phones(word)
+    entries = phones(word)
     if not entries:
-        return "0" * _syllable_count(word)
+        return "0" * syllable_count(word)
     return pronouncing.stresses(entries[0])
 
 
-def _sentiment(text: str) -> tuple[float, float]:
+def sentiment(text: str) -> tuple[float, float]:
     """Return (polarity, subjectivity) in [-1..1] and [0..1]."""
     blob = TextBlob(text)
     return blob.sentiment.polarity, blob.sentiment.subjectivity
 
 
-def _word_sentiment(word: str) -> tuple[float, float]:
-    return _sentiment(word)
+def word_sentiment(word: str) -> tuple[float, float]:
+    return sentiment(word)
 
 
-def _clean_words(text: str) -> list[str]:
+def clean_words(text: str) -> list[str]:
     """Tokenise text into lowercase alphabetic words."""
     return re.findall(r"[a-zA-Z]+", text.lower())
 
@@ -77,13 +77,13 @@ class StyleProfile:
     formality_ratio: float          # long words (>6 chars) / total
 
 
-def _build_style_profile(text: str) -> StyleProfile:
-    words = _clean_words(text)
+def build_style_profile(text: str) -> StyleProfile:
+    words = clean_words(text)
     if not words:
         return StyleProfile(0, 0, 0, 0, 0)
 
-    syllables   = [_syllable_count(w) for w in words]
-    sentiments  = [_word_sentiment(w) for w in words]
+    syllables   = [syllable_count(w) for w in words]
+    sentiments  = [word_sentiment(w) for w in words]
     polarities  = [p for p, _ in sentiments]
     subjectivities = [s for _, s in sentiments]
 
@@ -96,13 +96,13 @@ def _build_style_profile(text: str) -> StyleProfile:
     )
 
 
-def _style_score(word: str, profile: StyleProfile) -> float:
+def style_score(word: str, profile: StyleProfile) -> float:
     """
     Score how well *word* fits *profile*.
     Lower distance = better fit; we return a 0–1 fitness score.
     """
-    pol, subj = _word_sentiment(word)
-    syl  = _syllable_count(word)
+    pol, subj = word_sentiment(word)
+    syl  = syllable_count(word)
     wlen = len(word)
     formal = 1.0 if wlen > 6 else 0.0
 
@@ -128,8 +128,8 @@ def rank_words_by_style(text: str, candidates: list[str]) -> list[tuple[str, flo
     ...                     ["gloom", "happy", "luminous", "swift", "gentle"])
     [('luminous', 0.93), ('gentle', 0.89), ('gloom', 0.81), ...]
     """
-    profile = _build_style_profile(text)
-    scored  = [(w, _style_score(w, profile)) for w in candidates]
+    profile = build_style_profile(text)
+    scored  = [(w, style_score(w, profile)) for w in candidates]
     return sorted(scored, key=lambda x: x[1], reverse=True)
 
 
@@ -150,8 +150,8 @@ FOOT_PATTERNS = {
 
 def _line_stress(line: str) -> str:
     """Build the full stress string for a line of text."""
-    words = _clean_words(line)
-    return "".join(_stress_pattern(w) for w in words)
+    words = clean_words(line)
+    return "".join(stress_pattern(w) for w in words)
 
 
 def _dominant_foot(stress: str) -> Optional[str]:
@@ -202,7 +202,7 @@ def analyse_rhythm(poem: str) -> PoemRhythm:
 
     for raw in raw_lines:
         stress = _line_stress(raw)
-        syls   = sum(_syllable_count(w) for w in _clean_words(raw))
+        syls   = sum(syllable_count(w) for w in clean_words(raw))
         foot   = _dominant_foot(stress)
         # rough feet count: syllables / avg foot size
         avg_foot_size = len(FOOT_PATTERNS.get(foot, "xx")) if foot else 2
@@ -240,41 +240,41 @@ def analyse_rhythm(poem: str) -> PoemRhythm:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _last_word(line: str) -> str:
-    words = _clean_words(line)
+    words = clean_words(line)
     return words[-1] if words else ""
 
 
-def _rhyme_ending(word: str) -> Optional[str]:
+def rhyme_ending(word: str) -> Optional[str]:
     """
     Extract the rhyming nucleus: vowel + everything after the last stressed vowel.
     Returns None if the word isn't in the CMU dictionary.
     """
-    entries = _phones(word)
+    entries = phones(word)
     if not entries:
         return None
-    phones = entries[0].split()
+    phones_list = entries[0].split()
     # Find last stressed vowel
-    for i in range(len(phones) - 1, -1, -1):
-        if phones[i][-1] in "12":          # primary or secondary stress
-            return " ".join(phones[i:])
-    return " ".join(phones)
+    for i in range(len(phones_list) - 1, -1, -1):
+        if phones_list[i][-1] in "12":          # primary or secondary stress
+            return " ".join(phones_list[i:])
+    return " ".join(phones_list)
 
 
-def _words_rhyme(w1: str, w2: str) -> bool:
-    ending1 = _rhyme_ending(w1)
-    ending2 = _rhyme_ending(w2)
+def words_rhyme(w1: str, w2: str) -> bool:
+    ending1 = rhyme_ending(w1)
+    ending2 = rhyme_ending(w2)
     if ending1 is None or ending2 is None:
         return False
     return ending1 == ending2
 
 
-def _rhyme_distance(w1: str, w2: str) -> int:
+def rhyme_distance(w1: str, w2: str) -> int:
     """
     Levenshtein distance between two phone sequences.
     Used to measure how 'far' two words are from rhyming.
     """
-    e1 = (_rhyme_ending(w1) or "").split()
-    e2 = (_rhyme_ending(w2) or "").split()
+    e1 = (rhyme_ending(w1) or "").split()
+    e2 = (rhyme_ending(w2) or "").split()
     m, n = len(e1), len(e2)
     dp = [[0] * (n + 1) for _ in range(m + 1)]
     for i in range(m + 1): dp[i][0] = i
@@ -286,8 +286,8 @@ def _rhyme_distance(w1: str, w2: str) -> int:
     return dp[m][n]
 
 
-def _minimal_phone_repairs(target_ending: list[str],
-                            current_ending: list[str]) -> list[list[str]]:
+def minimal_phone_repairs(target_ending: list[str],
+                          current_ending: list[str]) -> list[list[str]]:
     """
     Return all edit paths of minimum cost that transform *current_ending*
     into *target_ending*, expressed as lists of operation strings.
@@ -358,15 +358,15 @@ def check_rhyme(line_a: str, line_b: str) -> RhymeResult:
     w_a = _last_word(line_a)
     w_b = _last_word(line_b)
 
-    rhymes   = _words_rhyme(w_a, w_b)
-    distance = _rhyme_distance(w_a, w_b)
+    rhymes   = words_rhyme(w_a, w_b)
+    distance = rhyme_distance(w_a, w_b)
 
     repairs: list[list[str]] = []
     if not rhymes:
-        end_a = (_rhyme_ending(w_a) or "").split()
-        end_b = (_rhyme_ending(w_b) or "").split()
+        end_a = (rhyme_ending(w_a) or "").split()
+        end_b = (rhyme_ending(w_b) or "").split()
         if end_a and end_b:
-            repairs = _minimal_phone_repairs(end_a, end_b)
+            repairs = minimal_phone_repairs(end_a, end_b)
 
     return RhymeResult(
         word_a        = w_a,
@@ -410,15 +410,15 @@ _POETIC_WORDS: list[str] = [
 ]
 
 
-def _rhymes_with(word: str, vocabulary: list[str]) -> list[str]:
+def rhymes_with(word: str, vocabulary: list[str]) -> list[str]:
     """Return all words in *vocabulary* that rhyme with *word*."""
-    return [w for w in vocabulary if w.lower() != word.lower() and _words_rhyme(word, w)]
+    return [w for w in vocabulary if w.lower() != word.lower() and words_rhyme(word, w)]
 
 
-def _sentiment_distance(text: str, word: str) -> float:
+def sentiment_distance(text: str, word: str) -> float:
     """Absolute polarity difference between a text block and a single word."""
-    pol_text, _ = _sentiment(text)
-    pol_word, _ = _word_sentiment(word)
+    pol_text, _ = sentiment(text)
+    pol_word, _ = word_sentiment(word)
     return abs(pol_text - pol_word)
 
 
@@ -451,15 +451,15 @@ def suggest_rhyme_repairs(
     vocab = list(set(_POETIC_WORDS + (extra_vocabulary or [])))
 
     anchor_word = _last_word(anchor_line)
-    rhyming     = _rhymes_with(anchor_word, vocab)
+    rhyming     = rhymes_with(anchor_word, vocab)
 
     if not rhyming:
         return []
 
     scored = []
     for candidate in rhyming:
-        sent_delta  = _sentiment_distance(broken_line, candidate)
-        style_score = _style_score(candidate, _build_style_profile(broken_line))
+        sent_delta  = sentiment_distance(broken_line, candidate)
+        style_score = style_score(candidate, build_style_profile(broken_line))
         example     = _swap_last_word(broken_line, candidate)
         scored.append({
             "word":           candidate,
