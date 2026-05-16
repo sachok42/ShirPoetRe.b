@@ -3,7 +3,7 @@ from PySide6.QtGui import QIcon, QAction, QPainter, QColor
 from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPlainTextEdit, QFileDialog,
-    QMessageBox, QToolBar, QLabel, QWidget
+    QMessageBox, QToolBar, QLabel, QWidget, QTabWidget
 )
 
 class LineNumberArea(QWidget):
@@ -99,19 +99,26 @@ class TextIDE(QMainWindow):
         self.is_dark_theme = False
         self.is_focus_mode = False
 
-        # Central widget - text editor
-        self.editor = MyTextEdit()
-        self.setCentralWidget(self.editor)
+        # You can open several tabs simultaneously in IDE.
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self.update_cursor_info)
+        self.setCentralWidget(self.tabs)
 
         # Cursor position indicator below the editor, on the left side.
         self.cursor_info = QLabel()
         self.cursor_info.setText("Ln 1, Col 1")
         self.cursor_info.setStyleSheet("QLabel { background-color: transparent; padding: 0 6px; }")
+
+        # Upon starting the program you create a new tab
+        self.new_tab()
+
         status = self.statusBar()
         status.setSizeGripEnabled(False)
         status.addWidget(self.cursor_info)
-        self.editor.cursorPositionChanged.connect(self.update_cursor_info)
-        self.editor.textChanged.connect(self.update_cursor_info)
+        self.current_editor().cursorPositionChanged.connect(self.update_cursor_info)
+        self.current_editor().textChanged.connect(self.update_cursor_info)
         self.update_cursor_info()
         self.apply_theme()
 
@@ -127,6 +134,24 @@ class TextIDE(QMainWindow):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def new_tab(self, text="", title="Untitled"):
+        editor = MyTextEdit()
+        editor.setPlainText(text)
+        editor.cursorPositionChanged.connect(self.update_cursor_info)
+        editor.textChanged.connect(self.update_cursor_info)
+        index = self.tabs.addTab(editor, title)
+        self.tabs.setCurrentIndex(index)
+
+    def current_editor(self):
+        return self.tabs.currentWidget()
+
+    def close_tab(self, index):
+        # Don't close the tab if it is the only remaining one.
+        if self.tabs.count() == 1:
+            return
+
+        self.tabs.removeTab(index)
 
     def create_menu(self):
         menu = self.menuBar()
@@ -236,41 +261,37 @@ class TextIDE(QMainWindow):
             self.focus_action.setChecked(False)
 
     def word_char_counter(self):
-        text = self.editor.toPlainText()
+        text = self.current_editor().toPlainText()
         char_count = len(text)
         word_count = len(text.split())
         return char_count, word_count
 
     def update_cursor_info(self):
-        cursor = self.editor.textCursor()
+        cursor = self.current_editor().textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.positionInBlock() + 1
         chars, words = self.word_char_counter()
         self.cursor_info.setText(f"Ln {line}, Col {col}, Words {words}, Chars {chars}")
 
     def new_file(self):
-        if not self.editor.toPlainText():
-            return
-        confirm = QMessageBox.question(self, "New File", "Save current document?",
-                                       QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-        if confirm == QMessageBox.Yes:
-            self.save_file()
-            self.editor.clear()
-        elif confirm == QMessageBox.No:
-            self.editor.clear()
-        # Cancel — do nothing
+        self.new_tab()
 
     def open_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open file", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             with open(file_path, "r", encoding="utf-8") as f:
-                self.editor.setPlainText(f.read())
+                text = f.read()
+            filename = file_path.split("/")[-1]
+            self.new_tab(text, filename)
 
     def save_file(self):
+        editor = self.current_editor()
         file_path, _ = QFileDialog.getSaveFileName(self, "Save file", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(self.editor.toPlainText())
+                f.write(editor.toPlainText())
+            filename = file_path.split("/")[-1]
+            self.tabs.setTabText(self.tabs.currentIndex(), filename)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
