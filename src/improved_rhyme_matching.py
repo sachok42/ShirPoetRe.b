@@ -9,19 +9,18 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import pronouncing
-import pronouncing
 from style_analysis import build_style_profile, rate_style_score
 from rhyme_analysis import last_word
 from utils import sentiment, word_sentiment
 
 
-def _phones_for(word: str) -> list[str]:
+def phones_for(word: str) -> list[str]:
     """Return the first CMU phone list for *word*, or []."""
     entries = pronouncing.phones_for_word(word.lower())
     return entries[0].split() if entries else []
 
 
-def _rhyme_nucleus(phones: list[str]) -> str:
+def rhyme_nucleus(phones: list[str]) -> str:
     """
     Extract the rhyming nucleus: last stressed-or-final vowel + everything after.
     Stress digits are stripped so AY1 == AY2 == AY.
@@ -36,7 +35,7 @@ def _rhyme_nucleus(phones: list[str]) -> str:
     return ""
 
 
-def _near_rhyme_nucleus(phones: list[str]) -> str:
+def near_rhyme_nucleus(phones: list[str]) -> str:
     """
     Looser match: just the vowel itself (no trailing consonants).
     Catches slant-rhymes like "love / above / shove".
@@ -54,14 +53,14 @@ def soft_rhyme(w1: str, w2: str) -> bool:
     """
     if w1.lower() == w2.lower():
         return False
-    p1, p2 = _phones_for(w1), _phones_for(w2)
+    p1, p2 = phones_for(w1), phones_for(w2)
     if not p1 or not p2:
         return False
-    n1, n2 = _rhyme_nucleus(p1), _rhyme_nucleus(p2)
+    n1, n2 = rhyme_nucleus(p1), rhyme_nucleus(p2)
     if n1 and n2 and n1 == n2:
         return True
     # near-rhyme: same vowel nucleus regardless of coda
-    v1, v2 = _near_rhyme_nucleus(p1), _near_rhyme_nucleus(p2)
+    v1, v2 = near_rhyme_nucleus(p1), near_rhyme_nucleus(p2)
     return bool(v1 and v2 and v1 == v2)
 
 
@@ -81,7 +80,7 @@ def detect_rhyme_scheme(lines: list[str]) -> list[str]:
     for i, word in enumerate(endings):
         if letters[i] != "?":
             continue
-        if not word or not _phones_for(word):
+        if not word or not phones_for(word):
             continue
         letters[i] = chr(next_letter)
         for j in range(i + 1, len(endings)):
@@ -100,7 +99,7 @@ def detect_rhyme_scheme(lines: list[str]) -> list[str]:
 import string as _string
 
 
-def _swap_last_word(line: str, new_word: str) -> str:
+def swap_last_word(line: str, new_word: str) -> str:
     stripped = line.rstrip(_string.punctuation + " ")
     trailing = line[len(stripped):]
     parts    = stripped.rsplit(None, 1)
@@ -163,7 +162,7 @@ def suggest_rhyme_repairs(
                 "rhyme_with":      anchor_word,
                 "sentiment_delta": round(sent_delta, 4),
                 "style_score":     style_score,
-                "example_line":    _swap_last_word(broken_line, word),
+                "example_line":    swap_last_word(broken_line, word),
             })
         except Exception:
             continue

@@ -6,7 +6,10 @@ from PySide6.QtGui import (
     QTextCursor, QTextBlockFormat,
 )
 from PySide6.QtCore import Qt, QRect, QSize
-from constants import ANN_MARGIN
+
+# Badge column width (pixels) reserved inside the gutter for the rhyme letter.
+# The line-number gutter is widened by this amount when annotations are active.
+BADGE_COL = 22
 
 RHYME_COLORS = [
     "#4a6fa5",  # A – blue
@@ -18,21 +21,28 @@ RHYME_COLORS = [
     "#a84470",  # G – rose
     "#5a8060",  # H – sage
 ]
+
 def rhyme_color(letter: str) -> str:
     idx = (ord(letter) - ord("A")) % len(RHYME_COLORS)
     return RHYME_COLORS[idx]
 
+
 class MyTextEdit(QPlainTextEdit):
     """
-    Text editor with per-line annotations painted above each poetry line.
-    Annotations never overlap text: each block's top-margin is extended by
-    ANN_MARGIN when annotation mode is active.
+    Text editor with per-line rhyme/rhythm annotations.
+
+    Layout (no text is ever overlapped):
+      • Rhyme-letter badge  – painted inside the line-number gutter, to the
+                              right of the line number, vertically centred on
+                              the text line.
+      • Stress + foot info  – painted to the RIGHT of the line's last glyph,
+                              on the same vertical centre as the text.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._annotations: dict[str, LineAnnotation] = {}
-        self._ann_active  = False    # True while block margins are expanded
+        self._ann_active  = False    # True while annotation data is loaded
 
         self.line_number_area = LineNumberArea(self)
 
@@ -45,51 +55,35 @@ class MyTextEdit(QPlainTextEdit):
     # ── Annotation data ───────────────────────────────────────────────────────
 
     def set_annotations(self, annotations: list[LineAnnotation], poem_text: str):
-        """Push new annotation data and expand block margins to make room."""
+        """Push new annotation data; widen the gutter to fit the badge column."""
         self._annotations.clear()
         lines = [l for l in poem_text.splitlines() if l.strip()]
         for i, ann in enumerate(annotations):
             if i < len(lines):
                 self._annotations[lines[i]] = ann
 
-        self._set_block_top_margins(ANN_MARGIN if annotations else 0)
         self._ann_active = bool(annotations)
+        # Recalculate gutter width (now includes BADGE_COL when active)
+        self.update_line_number_area_width()
         self.viewport().update()
 
     def clear_annotations(self):
         self._annotations.clear()
-        self._set_block_top_margins(0)
         self._ann_active = False
+        self.update_line_number_area_width()
         self.viewport().update()
 
-    def _set_block_top_margins(self, margin_px: int):
-        """
-        Walk every block and set its top margin so the annotation strip
-        has guaranteed empty space above the text glyphs.
-        Uses a single QTextCursor edit block for efficiency.
-        """
-        doc    = self.document()
-        cursor = QTextCursor(doc)
-        cursor.beginEditBlock()
-
-        fmt = QTextBlockFormat()
-        fmt.setTopMargin(margin_px)
-
-        cursor.movePosition(QTextCursor.Start)
-        cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
-        cursor.mergeBlockFormat(fmt)
-
-        cursor.endEditBlock()
-
-    def _annotation_for_block(self, block_text: str) -> "LineAnnotation | None":
+    def annotation_for_block(self, block_text: str) -> "LineAnnotation | None":
         return self._annotations.get(block_text.strip())
 
-    # ── Line number area (unchanged logic) ───────────────────────────────────
+    # ── Line number / gutter sizing ───────────────────────────────────────────
 
-    def line_number_area_size(self):
+    def line_number_area_size(self) -> QSize:
         digits = len(str(self.document().blockCount()))
-        space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
-        return QSize(space, 0)
+        # Width for digits + a small right-padding + badge column when active
+        num_w  = 10 + self.fontMetrics().horizontalAdvance('9') * digits
+        badge_w = BADGE_COL if self._ann_active else 0
+        return QSize(num_w + badge_w, 0)
 
     def update_line_number_area_width(self):
         self.setViewportMargins(self.line_number_area_size().width(), 0, 0, 0)
@@ -105,9 +99,21 @@ class MyTextEdit(QPlainTextEdit):
                   self.line_number_area_size().width(), cr.height())
         )
 
+    # ── Gutter paint: line numbers + rhyme-letter badge ───────────────────────
+
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.line_number_area)
         painter.fillRect(event.rect(), QColor("#2b2b2b"))
+
+        gutter_w     = self.line_number_area.width()
+        badge_col_x  = gutter_w - BADGE_COL   # left edge of badge column
+        num_w        = gutter_w - (BADGE_COL if self._ann_active else 0)
+
+        # Annotation font (smaller, italic) — used for the badge
+        ann_font = QFont(self.font())
+        ann_font.setPointSize(max(6, self.font().pointSize() - 2))
+        ann_font.setBold(True)
+        ann_fm   = QFontMetrics(ann_font)
 
         block        = self.document().firstBlock()
         block_number = 0
@@ -116,20 +122,46 @@ class MyTextEdit(QPlainTextEdit):
 
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
+                line_h = int(bottom - top)
+                y_top  = int(top)
+
+                # ── Line number ───────────────────────────────────────────────
+                painter.setFont(self.font())
                 painter.setPen(QColor("#aaaaaa"))
                 painter.drawText(
-                    0, int(top),
-                    self.line_number_area.width() - 5,
+                    0, y_top,
+                    num_w - 4,           # leave a gap before the badge column
                     self.fontMetrics().height(),
                     Qt.AlignRight,
                     str(block_number + 1),
                 )
+
+                # ── Rhyme-letter badge (right column of the gutter) ───────────
+                if self._ann_active:
+                    ann = self.annotation_for_block(block.text())
+                    if ann is not None:
+                        letter = ann.rhyme_letter
+                        if letter and letter != "?":
+                            painter.setFont(ann_font)
+                            bw = ann_fm.horizontalAdvance(letter) + 6
+                            bh = ann_fm.height() + 2
+                            # Centre the badge vertically in the line
+                            by = y_top + (line_h - bh) // 2
+                            bx = badge_col_x + (BADGE_COL - bw) // 2
+                            painter.fillRect(bx, by, bw, bh,
+                                             QColor(rhyme_color(letter)))
+                            painter.setPen(QColor("#ffffff"))
+                            painter.drawText(bx, by, bw, bh,
+                                             Qt.AlignCenter, letter)
+
             block  = block.next()
             top    = bottom
             bottom = top + self.blockBoundingRect(block).height()
             block_number += 1
 
-    # ── Annotation painting ───────────────────────────────────────────────────
+        painter.end()
+
+    # ── Viewport paint: stress + foot/syllable info after each line ───────────
 
     def paintEvent(self, event):
         super().paintEvent(event)       # draw normal text first
@@ -143,43 +175,47 @@ class MyTextEdit(QPlainTextEdit):
         ann_font.setItalic(True)
         painter.setFont(ann_font)
         fm     = QFontMetrics(ann_font)
-        ann_h  = fm.height()
+        main_fm = self.fontMetrics()
         offset = self.contentOffset()
 
         block = self.document().firstBlock()
         while block.isValid():
-            ann = self._annotation_for_block(block.text())
+            ann = self.annotation_for_block(block.text())
             if ann is not None:
                 br = self.blockBoundingGeometry(block).translated(offset)
                 if br.bottom() >= event.rect().top() and br.top() <= event.rect().bottom():
-                    # Paint inside the top-margin strip we reserved — text is below it
-                    y = int(br.top()) + 1
-                    x = 4
 
-                    # ── Rhyme letter badge ────────────────────────────────────
-                    letter = ann.rhyme_letter
-                    if letter and letter != "?":
-                        badge_w = fm.horizontalAdvance(letter) + 6
-                        painter.fillRect(x, y, badge_w, ann_h - 1,
-                                         QColor(rhyme_color(letter)))
-                        painter.setPen(QColor("#ffffff"))
-                        painter.drawText(x + 3, y, badge_w, ann_h,
-                                         Qt.AlignLeft | Qt.AlignVCenter, letter)
-                        x += badge_w + 5
+                    # Vertical centre of the text line
+                    line_h = int(br.height())
+                    y_top  = int(br.top())
+                    y_text_centre = y_top + (line_h - fm.height()) // 2
+
+                    # Horizontal start: right edge of the line's text + a gap
+                    line_text  = block.text()
+                    text_px    = main_fm.horizontalAdvance(line_text)
+                    x = int(br.left()) + text_px + 16   # 16 px gap after text
 
                     # ── Stress pattern ────────────────────────────────────────
                     if ann.stress:
                         painter.setPen(QColor("#777777"))
-                        painter.drawText(x, y, 9999, ann_h,
-                                         Qt.AlignLeft | Qt.AlignVCenter, ann.stress)
-                        x += fm.horizontalAdvance(ann.stress) + 8
+                        painter.drawText(
+                            x, y_text_centre,
+                            9999, fm.height(),
+                            Qt.AlignLeft | Qt.AlignVCenter,
+                            ann.stress,
+                        )
+                        x += fm.horizontalAdvance(ann.stress) + 10
 
                     # ── Foot · syllables ──────────────────────────────────────
                     if ann.foot:
                         painter.setPen(QColor("#aaaaaa"))
-                        painter.drawText(x, y, 9999, ann_h,
-                                         Qt.AlignLeft | Qt.AlignVCenter,
-                                         f"{ann.foot} · {ann.syllables} syl")
+                        painter.drawText(
+                            x, y_text_centre,
+                            9999, fm.height(),
+                            Qt.AlignLeft | Qt.AlignVCenter,
+                            f"{ann.foot} · {ann.syllables} syl",
+                        )
+
             block = block.next()
 
         painter.end()

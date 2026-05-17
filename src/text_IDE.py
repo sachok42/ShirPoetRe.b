@@ -33,7 +33,7 @@ class TextIDE(QMainWindow):
         # Debounce timer: fires 600 ms after the user finishes a line
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
-        self._auto_timer.timeout.connect(self._auto_run_analysis)
+        self._auto_timer.timeout.connect(self.auto_run_analysis)
         self._prev_block_count = 1
 
         # ── Splitter ──────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ class TextIDE(QMainWindow):
         editor.setPlainText(text)
         editor.cursorPositionChanged.connect(self.update_cursor_info)
         editor.textChanged.connect(self.update_cursor_info)
-        editor.document().blockCountChanged.connect(self._on_block_count_changed)
+        editor.document().blockCountChanged.connect(self.on_block_count_changed)
         index = self.tabs.addTab(editor, title)
         self.tabs.setCurrentIndex(index)
         self._prev_block_count = editor.document().blockCount()
@@ -108,7 +108,7 @@ class TextIDE(QMainWindow):
 
     # ── Auto-analysis triggers ────────────────────────────────────────────────
 
-    def _on_block_count_changed(self, new_count: int):
+    def on_block_count_changed(self, new_count: int):
         """User pressed Enter (new block added) — start debounce timer."""
         if not self.analysis_panel.auto_analyse:
             return
@@ -116,7 +116,7 @@ class TextIDE(QMainWindow):
             self._auto_timer.start(600)
         self._prev_block_count = new_count
 
-    def _auto_run_analysis(self):
+    def auto_run_analysis(self):
         self.run_analysis(silent=True)
 
     # ── Core analysis ─────────────────────────────────────────────────────────

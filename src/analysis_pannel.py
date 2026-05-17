@@ -109,7 +109,7 @@ class AnalysisPanel(QWidget):
 
         self.repair_btn = QPushButton("Find Repairs")
         self.repair_btn.setEnabled(True)
-        self.repair_btn.clicked.connect(self._run_repair)
+        self.repair_btn.clicked.connect(self.run_repair)
         self.repair_group.layout().addWidget(self.repair_btn)
 
         self.repair_results = QVBoxLayout()
@@ -128,7 +128,7 @@ class AnalysisPanel(QWidget):
 
         self.style_btn = QPushButton("Rank by Style")
         self.style_btn.setEnabled(True)
-        self.style_btn.clicked.connect(self._run_style)
+        self.style_btn.clicked.connect(self.run_style)
         self.style_group.layout().addWidget(self.style_btn)
 
         self.style_results = QVBoxLayout()
@@ -156,7 +156,7 @@ class AnalysisPanel(QWidget):
         scheme_str = " ".join(scheme) if scheme else "—"
         self.scheme_lbl.setText(f"Pattern:  {scheme_str}")
 
-        self._clear_layout(self.rhythm_group.layout())
+        self.clear_layout(self.rhythm_group.layout())
         if not poem_text.strip():
             self.rhythm_group.layout().addWidget(QLabel("No data."))
             return
@@ -172,8 +172,8 @@ class AnalysisPanel(QWidget):
 
     # ── Repair ────────────────────────────────────────────────────────────────
 
-    def _run_repair(self):
-        self._clear_layout(self.repair_results)
+    def run_repair(self):
+        self.clear_layout(self.repair_results)
         anchor = self.anchor_edit.text().strip()
         broken = self.broken_edit.text().strip()
         if not anchor or not broken:
@@ -206,8 +206,8 @@ class AnalysisPanel(QWidget):
 
     # ── Style ─────────────────────────────────────────────────────────────────
 
-    def _run_style(self):
-        self._clear_layout(self.style_results)
+    def run_style(self):
+        self.clear_layout(self.style_results)
         words_raw = self.candidates_edit.text().strip()
         if not words_raw:
             self.style_results.addWidget(QLabel("Enter candidate words first."))
@@ -226,10 +226,10 @@ class AnalysisPanel(QWidget):
             self.style_results.addWidget(_score_row("Style fit", score))
 
     @staticmethod
-    def _clear_layout(layout):
+    def clear_layout(layout):
         while layout.count():
             item = layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
             elif item.layout():
-                AnalysisPanel._clear_layout(item.layout())
+                AnalysisPanel.clear_layout(item.layout())
