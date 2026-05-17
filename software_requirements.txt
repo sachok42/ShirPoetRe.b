@@ -4,3 +4,6 @@ eng-to-ipa
 nltk
 pytest-qt
 pytest
+pronouncing
+textblob
+torch

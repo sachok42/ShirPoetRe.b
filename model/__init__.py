@@ -71,6 +71,7 @@ FALLBACK_WORDS = [
     "echo",
     "time",
 ]
+DEFAULT_VOCABULARY = FALLBACK_WORDS
 
 
 def _tokenize(text: str) -> list[str]:
@@ -685,6 +686,7 @@ def _normalize_word(word: str | None) -> str:
 
 
 _MODEL = PoetryNextWordModel()
+DEFAULT_VOCABULARY = _MODEL.vocabulary or FALLBACK_WORDS
 
 
 def predict(
@@ -756,6 +758,12 @@ ReemaPoetryModel = PoetryNextWordModel
 TransformerPoetryModel = PoetryNextWordModel
 
 
+class DummyPoetryModel:
+    """Compatibility shim for tests and older UI code."""
+
+    _rhymes = staticmethod(_rhymes)
+
+
 __all__ = [
     "DATA_DIR",
     "WEIGHTS_DIR",
@@ -763,11 +771,13 @@ __all__ = [
     "DEFAULT_VOCAB_PATH",
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_WEIGHTS_PATH",
+    "DEFAULT_VOCABULARY",
     "ReemaBiLSTMPoemGenerator",
     "ReemaModelConfig",
     "PoetryNextWordModel",
     "ReemaPoetryModel",
     "TransformerPoetryModel",
+    "DummyPoetryModel",
     "predict",
     "generate",
     "load_artifacts",
