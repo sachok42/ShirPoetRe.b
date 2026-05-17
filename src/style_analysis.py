@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from utils import clean_words, syllable_count, word_sentiment
-from collections import Counter
 
 
 @dataclass

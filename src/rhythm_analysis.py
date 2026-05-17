@@ -20,7 +20,7 @@ def line_stress(line: str) -> str:
     return "".join(stress_pattern(w) for w in words)
 
 
-def _dominant_foot(stress: str) -> Optional[str]:
+def dominant_foot(stress: str) -> Optional[str]:
     """Find the most frequently occurring metrical foot in *stress*."""
     if not stress:
         return None
@@ -69,7 +69,7 @@ def analyse_rhythm(poem: str) -> PoemRhythm:
     for raw in raw_lines:
         stress = line_stress(raw)
         syls   = sum(syllable_count(w) for w in clean_words(raw))
-        foot   = _dominant_foot(stress)
+        foot   = dominant_foot(stress)
         # rough feet count: syllables / avg foot size
         avg_foot_size = len(FOOT_PATTERNS.get(foot, "xx")) if foot else 2
         line_data.append(LineRhythm(
