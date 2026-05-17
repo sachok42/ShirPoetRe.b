@@ -1,0 +1,70 @@
+{
+  "corpus_file": "model/data/poem.txt",
+  "notes": [
+    "Corpus is intended for local model training.",
+    "Project Gutenberg boilerplate was removed so the model trains on poem text rather than license text.",
+    "Check non-U.S. copyright rules before redistributing outside the United States."
+  ],
+  "sources": [
+    {
+      "name": "Shakespeare's Sonnets",
+      "author": "William Shakespeare",
+      "ebook_no": "1041",
+      "url": "https://www.gutenberg.org/ebooks/1041",
+      "download_url": "https://www.gutenberg.org/ebooks/1041.txt.utf-8",
+      "license_note": "Project Gutenberg text marked as not restricted by U.S. copyright; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 2308,
+      "words_added": 17518
+    },
+    {
+      "name": "Songs of Innocence and of Experience",
+      "author": "William Blake",
+      "ebook_no": "1934",
+      "url": "https://www.gutenberg.org/ebooks/1934",
+      "download_url": "https://www.gutenberg.org/files/1934/1934-0.txt",
+      "license_note": "Project Gutenberg text marked as not restricted by U.S. copyright; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 1109,
+      "words_added": 5259
+    },
+    {
+      "name": "Poems by Emily Dickinson, Three Series, Complete",
+      "author": "Emily Dickinson",
+      "ebook_no": "12242",
+      "url": "https://www.gutenberg.org/ebooks/12242",
+      "download_url": "https://www.gutenberg.org/ebooks/12242.txt.utf-8",
+      "license_note": "Project Gutenberg text marked as public domain in the USA; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 8296,
+      "words_added": 29838
+    },
+    {
+      "name": "Leaves of Grass",
+      "author": "Walt Whitman",
+      "ebook_no": "1322",
+      "url": "https://www.gutenberg.org/ebooks/1322",
+      "download_url": "https://www.gutenberg.org/ebooks/1322.txt.utf-8",
+      "license_note": "Project Gutenberg text marked as public domain in the USA; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 16352,
+      "words_added": 122236
+    },
+    {
+      "name": "Goblin Market, The Prince's Progress, and Other Poems",
+      "author": "Christina Georgina Rossetti",
+      "ebook_no": "16950",
+      "url": "https://www.gutenberg.org/ebooks/16950",
+      "download_url": "https://www.gutenberg.org/ebooks/16950.txt.utf-8",
+      "license_note": "Project Gutenberg text marked as public domain in the USA; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 8608,
+      "words_added": 45060
+    },
+    {
+      "name": "A Child's Garden of Verses",
+      "author": "Robert Louis Stevenson",
+      "ebook_no": "28722",
+      "url": "https://www.gutenberg.org/ebooks/28722",
+      "download_url": "https://www.gutenberg.org/ebooks/28722.txt.utf-8",
+      "license_note": "Project Gutenberg text marked as public domain in the USA; Gutenberg header/license were stripped from the training corpus.",
+      "lines_added": 1698,
+      "words_added": 7952
+    }
+  ]
+}
