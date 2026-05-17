@@ -12,6 +12,7 @@ import pronouncing
 from style_analysis import build_style_profile, rate_style_score
 from rhyme_analysis import last_word
 from utils import sentiment, word_sentiment
+import string
 
 
 def phones_for(word: str) -> list[str]:
@@ -96,11 +97,10 @@ def detect_rhyme_scheme(lines: list[str]) -> list[str]:
 #  instead of the tiny _POETIC_WORDS list, so it always finds candidates.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import string as _string
 
 
 def swap_last_word(line: str, new_word: str) -> str:
-    stripped = line.rstrip(_string.punctuation + " ")
+    stripped = line.rstrip(string.punctuation + " ")
     trailing = line[len(stripped):]
     parts    = stripped.rsplit(None, 1)
     return (parts[0] + " " + new_word + trailing) if len(parts) == 2 \
