@@ -14,10 +14,13 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 from typing import Any, Sequence
+from zipfile import BadZipFile, ZipFile
 
 try:  # PyTorch is optional for importing the package in lightweight envs.
     import torch
@@ -35,11 +38,19 @@ else:
 PACKAGE_DIR = Path(__file__).resolve().parent
 DATA_DIR = PACKAGE_DIR / "data"
 WEIGHTS_DIR = DATA_DIR / "weights"
+DATA_ARCHIVE_PATH = PACKAGE_DIR / "data.zip"
+DATA_ARCHIVE_STAMP_PATH = DATA_DIR / ".data_zip_sha256"
 
 DEFAULT_CORPUS_PATH = DATA_DIR / "poem.txt"
 DEFAULT_VOCAB_PATH = DATA_DIR / "vocabulary.json"
 DEFAULT_CONFIG_PATH = DATA_DIR / "training_config.json"
 DEFAULT_WEIGHTS_PATH = WEIGHTS_DIR / "reema_bi_lstm_poem_generator.pt"
+REQUIRED_DATA_FILES = (
+    DEFAULT_CORPUS_PATH,
+    DEFAULT_VOCAB_PATH,
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_WEIGHTS_PATH,
+)
 
 PAD_TOKEN = "<pad>"
 UNK_TOKEN = "<unk>"
@@ -99,6 +110,61 @@ def _ensure_special_tokens(tokens: Sequence[str]) -> list[str]:
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _zip_member_is_safe(member_name: str) -> bool:
+    normalized = member_name.replace("\\", "/")
+    member_path = Path(normalized)
+    return (
+        bool(normalized)
+        and not member_path.is_absolute()
+        and ".." not in member_path.parts
+        and (normalized == "data/" or normalized.startswith("data/"))
+    )
+
+
+def _ensure_data_artifacts() -> None:
+    """Extract packaged data.zip when data artifacts are missing or stale."""
+    if not DATA_ARCHIVE_PATH.exists():
+        return
+
+    archive_hash = _file_sha256(DATA_ARCHIVE_PATH)
+    previous_hash = (
+        DATA_ARCHIVE_STAMP_PATH.read_text(encoding="utf-8").strip()
+        if DATA_ARCHIVE_STAMP_PATH.exists()
+        else ""
+    )
+    missing_required_file = any(not path.exists() for path in REQUIRED_DATA_FILES)
+
+    if DATA_DIR.exists() and not missing_required_file and previous_hash == archive_hash:
+        return
+
+    try:
+        with ZipFile(DATA_ARCHIVE_PATH) as archive:
+            unsafe_members = [
+                member.filename
+                for member in archive.infolist()
+                if not _zip_member_is_safe(member.filename)
+            ]
+            if unsafe_members:
+                raise ValueError(f"Unsafe path in {DATA_ARCHIVE_PATH.name}: {unsafe_members[0]}")
+
+            if DATA_DIR.exists():
+                shutil.rmtree(DATA_DIR)
+            archive.extractall(PACKAGE_DIR)
+    except BadZipFile as exc:
+        raise RuntimeError(f"Could not read packaged model data: {DATA_ARCHIVE_PATH}") from exc
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_ARCHIVE_STAMP_PATH.write_text(archive_hash + "\n", encoding="utf-8")
 
 
 def _load_vocabulary_payload(payload: Any) -> list[str]:
@@ -302,6 +368,8 @@ class PoetryNextWordModel:
         device: str | None = None,
         autoload: bool = True,
     ) -> None:
+        _ensure_data_artifacts()
+
         self.weights_path = Path(weights_path or DEFAULT_WEIGHTS_PATH)
         self.vocab_path = Path(vocab_path or DEFAULT_VOCAB_PATH)
         self.config_path = Path(config_path or DEFAULT_CONFIG_PATH)
@@ -326,6 +394,8 @@ class PoetryNextWordModel:
         config_path: str | Path | None = None,
         required: bool = False,
     ) -> "PoetryNextWordModel":
+        _ensure_data_artifacts()
+
         if weights_path is not None:
             self.weights_path = Path(weights_path)
         if vocab_path is not None:
