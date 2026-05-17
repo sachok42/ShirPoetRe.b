@@ -84,7 +84,7 @@ def suggest_rhyme_repairs(
     for candidate in rhyming:
         sent_delta  = sentiment_distance(broken_line, candidate)
         style_score = rate_style_score(candidate, build_style_profile(broken_line))
-        example     = _swap_last_word(broken_line, candidate)
+        example     = swap_last_word(broken_line, candidate)
         scored.append({
             "word":           candidate,
             "rhyme_with":     anchor_word,
@@ -98,7 +98,7 @@ def suggest_rhyme_repairs(
     return scored[:top_n]
 
 
-def _swap_last_word(line: str, new_word: str) -> str:
+def swap_last_word(line: str, new_word: str) -> str:
     """Replace the final word in *line* with *new_word*, preserving punctuation."""
     stripped = line.rstrip(string.punctuation + " ")
     trailing = line[len(stripped):]
