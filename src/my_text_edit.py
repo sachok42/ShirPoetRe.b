@@ -3,7 +3,6 @@ from line_annotation import LineAnnotation
 from PySide6.QtWidgets import QPlainTextEdit
 from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics,
-    QTextCursor, QTextBlockFormat,
     QSyntaxHighlighter, QTextCharFormat,
 )
 from PySide6.QtCore import Qt, QRect, QSize

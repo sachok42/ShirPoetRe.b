@@ -1,13 +1,3 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-#  IMPROVED RHYME MATCHING
-#  Problem: exact phoneme-string equality misses near-rhymes like
-#  "temperate/date", "stone/alone", "love/above".
-#  Fix: normalise the ending by stripping stress digits from the nuclear vowel
-#  so AY1, AY2, AY0 all collapse to AY — then match on that.
-#  A second "near-rhyme" pass also matches when only the vowel nucleus +
-#  trailing consonants agree (ignoring leading onset consonants of the rime).
-# ═══════════════════════════════════════════════════════════════════════════════
-
 import pronouncing
 from style_analysis import build_style_profile, rate_style_score
 from rhyme_analysis import last_word

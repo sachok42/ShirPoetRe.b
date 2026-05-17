@@ -19,7 +19,7 @@ except LookupError:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _synonyms(word: str) -> list[str]:
+def synonyms(word: str) -> list[str]:
     """
     Return a deduplicated list of single-token synonyms for *word* via WordNet.
     Multi-word lemmas (containing '_') are skipped.
@@ -104,10 +104,10 @@ def suggest_rhythm_repairs(
 
     for word in words:
         orig_syls  = syllable_count(word)
-        synonyms   = _synonyms(word)
-        tried      = len(synonyms)
+        synonyms_list   = synonyms(word)
+        tried      = len(synonyms_list)
 
-        for syn in synonyms:
+        for syn in synonyms_list:
             syn_syls   = syllable_count(syn)
             word_delta = syn_syls - orig_syls   # how this swap changes line length
 
