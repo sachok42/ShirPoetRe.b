@@ -3,12 +3,12 @@ from dataclasses import dataclass, field
 from typing import Optional
 from hypothesis import given, strategies as st
 
-@given(st.text())
+# @given(st.text())
 def last_word(line: str) -> str:
     words = clean_words(line)
     return words[-1] if words else ""
 
-@given(st.text())
+# @given(st.text())
 def rhyme_ending(word: str) -> Optional[str]:
     """
     Extract the rhyming nucleus: vowel + everything after the last stressed vowel.
@@ -24,7 +24,7 @@ def rhyme_ending(word: str) -> Optional[str]:
             return " ".join(phones_list[i:])
     return " ".join(phones_list)
 
-@given(st.text(), st.text())
+# @given(st.text(), st.text())
 def words_rhyme(w1: str, w2: str) -> bool:
     ending1 = rhyme_ending(w1)
     ending2 = rhyme_ending(w2)
@@ -32,7 +32,7 @@ def words_rhyme(w1: str, w2: str) -> bool:
         return False
     return ending1 == ending2
 
-@given(st.text(), st.text())
+# @given(st.text(), st.text())
 def rhyme_distance(w1: str, w2: str) -> int:
     """
     Levenshtein distance between two phone sequences.
@@ -50,7 +50,7 @@ def rhyme_distance(w1: str, w2: str) -> int:
             dp[i][j] = min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost)
     return dp[m][n]
 
-@given(st.lists(st.text()), st.lists(st.text()))
+# @given(st.lists(st.text()), st.lists(st.text()))
 def minimal_phone_repairs(target_ending: list[str],
                           current_ending: list[str]) -> list[list[str]]:
     """
@@ -99,7 +99,7 @@ class RhymeResult:
     distance: int
     repair_options: list[list[str]] = field(default_factory=list)
 
-@given(st.text(), st.text())
+# @given(st.text(), st.text())
 def check_rhyme(line_a: str, line_b: str) -> RhymeResult:
     """
     Check whether the last words of *line_a* and *line_b* rhyme.

@@ -20,7 +20,7 @@ except LookupError:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-@given(st.text())
+# @given(st.text())
 def synonyms(word: str) -> list[str]:
     """
     Return a deduplicated list of single-token synonyms for *word* via WordNet.
@@ -37,7 +37,7 @@ def synonyms(word: str) -> list[str]:
     return result
 
 
-@given(st.text())
+# @given(st.text())
 def line_syllables(line: str) -> int:
     return sum(syllable_count(w) for w in clean_words(line))
 

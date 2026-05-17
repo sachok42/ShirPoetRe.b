@@ -15,13 +15,13 @@ FOOT_PATTERNS = {
 }
 
 
-@given(st.text())
+# @given(st.text())
 def line_stress(line: str) -> str:
     """Build the full stress string for a line of text."""
     words = clean_words(line)
     return "".join(stress_pattern(w) for w in words)
 
-@given(st.text())
+# @given(st.text())
 def dominant_foot(stress: str) -> Optional[str]:
     """Find the most frequently occurring metrical foot in *stress*."""
     if not stress:
@@ -51,7 +51,7 @@ class PoemRhythm:
     regularity_score: float         # 0 = chaotic, 1 = perfectly regular
     syllable_counts: list[int]
 
-@given(st.text())
+# @given(st.text())
 def analyse_rhythm(poem: str) -> PoemRhythm:
     """
     Analyse the rhythmic structure of *poem* (newline-separated lines).
