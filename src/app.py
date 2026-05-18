@@ -118,7 +118,6 @@ class ShirPoetApp(TextIDE):
             self.statusBar().showMessage("Type some context first.", 3000)
             return
 
-        # Авто-рифма, если перешли на новую строку
         lines = self.non_empty_lines()
         target_rhyme = None
         if context.endswith('\n') and len(lines) >= 1:
@@ -126,36 +125,50 @@ class ShirPoetApp(TextIDE):
             if last_line_words:
                 target_rhyme = normalize_word(last_line_words[-1])
 
-        # Получаем чистые предсказания от ИИ
-        candidates = next_word_candidates(context, model, limit=8, rhyme_with=target_rhyme)
+        # Берем сразу большой пул слов (30 штук), чтобы было из чего выбирать
+        all_candidates = next_word_candidates(context, model, limit=30, rhyme_with=target_rhyme)
 
-        if not candidates:
-            self.statusBar().showMessage("AI needs more context...", 3500)
+        if not all_candidates:
+            self.statusBar().showMessage("AI is thinking hard... try again.", 3500)
             return
 
-        # --- СОЗДАЕМ ВСПЛЫВАЮЩЕЕ МЕНЮ ПРЯМО ПОД КУРСОРОМ ---
         editor = self.current_editor()
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #2b2b2b; color: white; border: 1px solid #444; }
-            QMenu::item:selected { background-color: #3a6ea5; }
+            QMenu { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #454545; font-size: 13px; }
+            QMenu::item { padding: 5px 25px 5px 20px; }
+            QMenu::item:selected { background-color: #094771; color: white; }
+            QMenu::separator { height: 1px; background: #454545; margin: 5px 10px; }
         """)
 
-        for word in candidates:
-            action = QAction(word, self)
+        # 1. Базовые слова (Первые 8)
+        standard = all_candidates[:8]
+        for word in standard:
+            action = QAction(f"{word}", self)
             action.triggered.connect(lambda checked=False, w=word: self.insert_word(w))
             menu.addAction(action)
 
-        # Вычисляем позицию курсора на экране
+        # 2. Больше слов
+        if len(all_candidates) > 8:
+            menu.addSeparator()
+
+            # Создаем подменю "More Creative"
+            creative_menu = menu.addMenu("More Creative / Rare")
+            creative_menu.setStyleSheet(menu.styleSheet())  # Копируем стиль
+
+            # Добавляем остальные слова (с 9-го по 30-е)
+            creative_pool = all_candidates[8:]
+            for word in creative_pool:
+                action = QAction(f" {word}", self)
+                action.triggered.connect(lambda checked=False, w=word: self.insert_word(w))
+                creative_menu.addAction(action)
+
+        # Позиционирование меню
         cursor_rect = editor.cursorRect()
         global_pos = editor.mapToGlobal(cursor_rect.bottomRight())
-
-        # Показываем меню
         menu.exec(global_pos)
 
-    # ==========================================
     # ANTI-LOOP BULK MAGIC (CTRL+B)
-    # ==========================================
     def bulk_magic(self) -> None:
         context = self.editor_text()
         self.statusBar().showMessage("AI is weaving lines...", 3000)
