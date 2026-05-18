@@ -14,26 +14,30 @@ The system aims to support both technical precision (meter, rhyme, grammar) and 
 
 * Display current line and cursor position (bottom-left corner)
 * Line numbering panel
-* Text style customization (font, size, formatting)
 * Toggle between dark and light themes
 * **Focus Mode** — hides all interface elements to eliminate distractions
 * Real-time word and character counter
-
-### File Management
-
 * Create, open, save, and “Save As” functionality
 * Integrated file explorer
-* Support for exporting poems in multiple formats (e.g., TXT, PDF)
+* Support for exporting poems in .TXT format
 
-### Linguistic Assistance
+### NLP powered assistance and analysis
 
-* Highlight stress patterns in words
-* Detect and highlight rhyme schemes across lines
-* Highlight grammatical errors
-* Visualize poetic meter structure
+* Highlighting stress patterns in words
+* Highlighting rhyming strings
+* Detecting and highlighting rhyme schemes across lines
+* Highlighting grammatical errors
+* Visualizing poetic meter structure
+* Analysis of stylistic fit of new words
+* Proposing repairments in rhyme and rhythmic structure
 
 ### Neural Network Features
 
 * Generate the beginning of a poem based on user-defined tags or themes
 * Generate a new line that preserves rhyme, stress pattern, and stylistic features of previous lines
 * Intelligent continuation suggestions for incomplete lines
+
+### Requirements
+* Is guaranteed to work on ubuntu
+* Execute via launching src/main.py
+* Requirements are listed in requirements.txt

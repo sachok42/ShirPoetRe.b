@@ -7,3 +7,4 @@ pytest
 pronouncing
 textblob
 torch
+hypothesis

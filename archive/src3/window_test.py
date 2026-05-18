@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtGui import QTextCursor
 
-from src.window import TextIDE
+from archive.src3.window import TextIDE
 
 
 @pytest.fixture
