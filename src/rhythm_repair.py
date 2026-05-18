@@ -1,7 +1,8 @@
 from __future__ import annotations
 from rhythm_analysis import analyse_rhythm
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from hypothesis import given, strategies as st
 
 from utils import syllable_count, clean_words, stress_pattern
 from style_analysis import build_style_profile, rate_style_score
@@ -11,14 +12,15 @@ try:
     from nltk.corpus import wordnet as _wn
     _wn.synsets("test")          # trigger corpus load; raises if not downloaded
 except LookupError:
-    import nltk as _nltk
-    _nltk.download("wordnet", quiet=True)
-    _nltk.download("omw-1.4",  quiet=True)
+    import nltk as nltk
+    nltk.download("wordnet", quiet=True)
+    nltk.download("omw-1.4", quiet=True)
     from nltk.corpus import wordnet as _wn
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+# @given(st.text())
 def synonyms(word: str) -> list[str]:
     """
     Return a deduplicated list of single-token synonyms for *word* via WordNet.
@@ -35,11 +37,12 @@ def synonyms(word: str) -> list[str]:
     return result
 
 
-def _line_syllables(line: str) -> int:
+# @given(st.text())
+def line_syllables(line: str) -> int:
     return sum(syllable_count(w) for w in clean_words(line))
 
 
-def _swap_word(line: str, original: str, replacement: str) -> str:
+def swap_word(line: str, original: str, replacement: str) -> str:
     """Case-insensitive whole-word replacement (first occurrence)."""
     pattern = re.compile(r'\b' + re.escape(original) + r'\b', re.IGNORECASE)
     return pattern.sub(replacement, line, count=1)
@@ -92,7 +95,7 @@ def suggest_rhythm_repairs(
     >>> suggestions[0].example_line
     'the bright and glimmering moon drifts silently above'
     """
-    current_syls = _line_syllables(line)
+    current_syls = line_syllables(line)
     delta_needed = target_syllables - current_syls   # negative → line too long
 
     if delta_needed == 0:
@@ -120,7 +123,7 @@ def suggest_rhythm_repairs(
             # How much does the gap close?
             improvement = min(abs(word_delta), abs(delta_needed))
 
-            example = _swap_word(line, word, syn)
+            example = swap_word(line, word, syn)
             results.append(RhythmRepairSuggestion(
                 original_word  = word,
                 replacement    = syn,
