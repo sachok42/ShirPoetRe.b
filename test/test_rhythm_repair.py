@@ -4,7 +4,7 @@ def test_synonyms_returns_list():
     assert isinstance(rr.synonyms("light"), list)
 
 def test_swap_word_basic():
-    out = rr._swap_word("hello world", "world", "moon")
+    out = rr.swap_word("hello world", "world", "moon")
     assert "moon" in out
 
 def test_infer_target_syllables_none_or_int():
