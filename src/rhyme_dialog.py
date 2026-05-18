@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.poetry_tools import check_rhyme, normalize_word, syllable_count
+from poetry_tools import check_rhyme, normalize_word, syllable_count
 
 
 class RhymeDialog(QDialog):

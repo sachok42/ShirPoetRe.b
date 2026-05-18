@@ -154,10 +154,12 @@ class MyTextEdit(QPlainTextEdit):
     def set_annotations(self, annotations: list[LineAnnotation], poem_text: str):
         """Push new annotation data; widen the gutter to fit the badge column."""
         self._annotations.clear()
+        # Key by the 0-based index among non-empty lines so that annotations
+        # survive bulk word insertions that mutate the line text in-place.
         lines = [l for l in poem_text.splitlines() if l.strip()]
         for i, ann in enumerate(annotations):
             if i < len(lines):
-                self._annotations[lines[i]] = ann
+                self._annotations[i] = ann
 
         self._ann_active = bool(annotations)
         self.update_line_number_area_width()
@@ -169,8 +171,9 @@ class MyTextEdit(QPlainTextEdit):
         self.update_line_number_area_width()
         self.viewport().update()
 
-    def annotation_for_block(self, block_text: str) -> "LineAnnotation | None":
-        return self._annotations.get(block_text.strip())
+    def annotation_for_block(self, block_number: int) -> "LineAnnotation | None":
+        """Look up annotation by 0-based non-empty-line index."""
+        return self._annotations.get(block_number)
 
     # ── Line number / gutter sizing ───────────────────────────────────────────
 
@@ -211,6 +214,7 @@ class MyTextEdit(QPlainTextEdit):
 
         block        = self.document().firstBlock()
         block_number = 0
+        nonempty_idx = 0          # counts only blocks that have non-whitespace text
         top    = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
         bottom = top + self.blockBoundingRect(block).height()
 
@@ -231,8 +235,8 @@ class MyTextEdit(QPlainTextEdit):
                 )
 
                 # ── Rhyme-letter badge ────────────────────────────────────────
-                if self._ann_active:
-                    ann = self.annotation_for_block(block.text())
+                if self._ann_active and block.text().strip():
+                    ann = self.annotation_for_block(nonempty_idx)
                     if ann is not None:
                         letter = ann.rhyme_letter
                         if letter and letter != "?":
@@ -247,6 +251,8 @@ class MyTextEdit(QPlainTextEdit):
                             painter.drawText(bx, by, bw, bh,
                                              Qt.AlignCenter, letter)
 
+            if block.text().strip():
+                nonempty_idx += 1
             block  = block.next()
             top    = bottom
             bottom = top + self.blockBoundingRect(block).height()
@@ -272,39 +278,41 @@ class MyTextEdit(QPlainTextEdit):
         offset  = self.contentOffset()
 
         block = self.document().firstBlock()
+        nonempty_idx = 0
         while block.isValid():
-            ann = self.annotation_for_block(block.text())
-            if ann is not None:
-                br = self.blockBoundingGeometry(block).translated(offset)
-                if br.bottom() >= event.rect().top() and br.top() <= event.rect().bottom():
+            if block.text().strip():
+                ann = self.annotation_for_block(nonempty_idx)
+                if ann is not None:
+                    br = self.blockBoundingGeometry(block).translated(offset)
+                    if br.bottom() >= event.rect().top() and br.top() <= event.rect().bottom():
 
-                    line_h = int(br.height())
-                    y_top  = int(br.top())
-                    y_text_centre = y_top + (line_h - fm.height()) // 2
+                        line_h = int(br.height())
+                        y_top  = int(br.top())
+                        y_text_centre = y_top + (line_h - fm.height()) // 2
 
-                    line_text = block.text()
-                    text_px   = main_fm.horizontalAdvance(line_text)
-                    x = int(br.left()) + text_px + 16
+                        line_text = block.text()
+                        text_px   = main_fm.horizontalAdvance(line_text)
+                        x = int(br.left()) + text_px + 16
 
-                    # ── Stress pattern ────────────────────────────────────────
-                    if ann.stress:
-                        painter.setPen(QColor("#777777"))
-                        painter.drawText(
-                            x, y_text_centre, 9999, fm.height(),
-                            Qt.AlignLeft | Qt.AlignVCenter,
-                            ann.stress,
-                        )
-                        x += fm.horizontalAdvance(ann.stress) + 10
+                        # ── Stress pattern ────────────────────────────────────────
+                        if ann.stress:
+                            painter.setPen(QColor("#777777"))
+                            painter.drawText(
+                                x, y_text_centre, 9999, fm.height(),
+                                Qt.AlignLeft | Qt.AlignVCenter,
+                                ann.stress,
+                            )
+                            x += fm.horizontalAdvance(ann.stress) + 10
 
-                    # ── Foot · syllables ──────────────────────────────────────
-                    if ann.foot:
-                        painter.setPen(QColor("#aaaaaa"))
-                        painter.drawText(
-                            x, y_text_centre, 9999, fm.height(),
-                            Qt.AlignLeft | Qt.AlignVCenter,
-                            f"{ann.foot} · {ann.syllables} syl",
-                        )
-
+                        # ── Foot · syllables ──────────────────────────────────────
+                        if ann.foot:
+                            painter.setPen(QColor("#aaaaaa"))
+                            painter.drawText(
+                                x, y_text_centre, 9999, fm.height(),
+                                Qt.AlignLeft | Qt.AlignVCenter,
+                                f"{ann.foot} · {ann.syllables} syl",
+                            )
+                nonempty_idx += 1
             block = block.next()
 
         painter.end()
