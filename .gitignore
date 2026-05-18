@@ -2,3 +2,8 @@
 .venv/
 *.pyc
 __pycache__/
+model/data/
+model/data/weights/*.h5
+model/data/weights/*.keras
+model/data/weights/*.pt
+model/data/weights/*.pth
