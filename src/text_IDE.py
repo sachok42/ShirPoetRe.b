@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QSplitter
 )
 from my_text_edit import MyTextEdit
-from improved_rhyme_matching import detect_rhyme_scheme
 from analysis_pannel import AnalysisPanel
 from annotation_data import build_annotations
 
@@ -116,6 +115,14 @@ class TextIDE(QMainWindow):
             self._auto_timer.start(600)
         self._prev_block_count = new_count
 
+    def schedule_auto_analysis(self, delay_ms: int = 800):
+        """
+        Explicitly schedule a silent re-analysis after a bulk/AI insertion.
+        Safe to call even when auto_analyse is off — callers (bulk magic,
+        suggest_word) always want annotations refreshed after they write text.
+        """
+        self._auto_timer.start(delay_ms)
+
     def auto_run_analysis(self):
         self.run_analysis(silent=True)
 
@@ -133,12 +140,9 @@ class TextIDE(QMainWindow):
             self.splitter.setSizes([560, 300])
             self.analysis_action.setChecked(True)
 
-        annotations = build_annotations(poem)
-        lines = [l for l in poem.splitlines() if l.strip()]
-        try:
-            scheme = detect_rhyme_scheme(lines)
-        except Exception:
-            scheme = []
+        # build_annotations already runs detect_rhyme_scheme internally;
+        # reuse that result to guarantee panel and painted badges stay in sync.
+        annotations, scheme = build_annotations(poem)
 
         self.current_editor().set_annotations(annotations, poem)
         self.analysis_panel.update_summaries(poem, annotations, scheme)
