@@ -72,33 +72,60 @@ def model_word_counts(model_module) -> dict[str, int]:
     return dict(counts)
 
 # --- ПУРЕ ИИ: НИКАКИХ СТАТИСТИЧЕСКИХ ЗАГЛУШЕК ---
-def next_word_candidates(context: str, model_module, limit: int = 10, rhyme_with: str = None) -> list[str]:
-    """Strictly relies on the neural network. Extremely creative setting."""
-    recent = clean_words(context)[-15:]
+def next_word_candidates(context: str, model_module, limit: int = 40, rhyme_with: str = None) -> list[str]:
+    """Гармоничное сочетание логики и осмысленного творчества."""
 
+    # Список грамматического мусора, который мы уберем из КРЕАТИВНОГО списка
+    STOP_WORDS = {
+        "the", "a", "an", "and", "or", "but", "if", "then", "of", "at", "by", "for",
+        "from", "in", "on", "to", "with", "is", "are", "was", "were", "am", "be",
+        "been", "being", "have", "has", "had", "i", "you", "he", "she", "it", "we",
+        "they", "my", "your", "his", "her", "their", "our", "as", "who", "whom", "this", "that"
+    }
+
+    # 1. ЛОГИЧНЫЙ СЛОЙ (Топ-10 самых вероятных)
     try:
-        # Просим ИИ выдать максимум креатива (temp 1.5)
-        # Запрещаем последние 5 слов, чтобы он не топтался на месте
-        result = model_module.predict(
+        standard_results = model_module.predict(
             context,
-            top_k=40,
-            forbidden_words=recent[-5:],
+            top_k=10,
+            temperature=1.0,
+            rhyme_with=rhyme_with
+        )
+    except:
+        standard_results = []
+
+    # 2. КРЕАТИВНЫЙ СЛОЙ (Берем топ-100, но с умеренным риском)
+    try:
+        # Температура 1.3 - 1.4 идеальна: она дает разнообразие, но не бредит
+        creative_pool = model_module.predict(
+            context,
+            top_k=100,
             temperature=1.5,
             rhyme_with=rhyme_with
         )
-    except Exception:
-        return []
+    except:
+        creative_pool = []
 
-    raw = result if isinstance(result, list) else ([result] if result else [])
+    def process(lst):
+        out = []
+        for w in lst:
+            norm = normalize_word(str(w))
+            if norm and norm not in ["<pad>", "<unk>"] and norm not in out:
+                out.append(norm)
+        return out
 
-    cleaned = []
-    for candidate in raw:
-        word = normalize_word(str(candidate))
-        if word and word not in ["<pad>", "<unk>"] and word not in cleaned:
-            cleaned.append(word)
+    safe_list = process(standard_results)
+    full_creative = process(creative_pool)
 
-    return cleaned[:limit]
+    # Формируем "Творческий список":
+    # Убираем те, что уже есть в Топ-8 + убираем STOP_WORDS (артикли и прочее)
+    creative_filtered = [
+        w for w in full_creative
+        if w not in safe_list[:8] and w not in STOP_WORDS
+    ]
 
+    # Итог: первые 8 - база, остальные - только смысловые "вкусные" слова
+    return safe_list[:8] + creative_filtered
 # --- КАСТОМНЫЙ ANTI-LOOP ГЕНЕРАТОР ---
 def smart_bulk_generate(context: str, model_module, num_words: int = 15) -> str:
     """Overwrites Yura's looping generator with an active anti-loop engine."""

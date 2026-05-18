@@ -109,65 +109,45 @@ class ShirPoetApp(TextIDE):
     def rhyme_candidates(self, word: str, limit: int = 24):
         return find_rhyme_candidates(word, model_vocabulary(model), model_word_counts(model), limit)
 
-    # ==========================================
     # ИНТЕРАКТИВНОЕ МЕНЮ ДЛЯ SUGGEST (CTRL+G)
-    # ==========================================
     def suggest_word(self) -> None:
         context = self.editor_text()
-        if not context.strip():
-            self.statusBar().showMessage("Type some context first.", 3000)
-            return
+        if not context.strip(): return
 
-        lines = self.non_empty_lines()
-        target_rhyme = None
-        if context.endswith('\n') and len(lines) >= 1:
-            last_line_words = lines[-1].split()
-            if last_line_words:
-                target_rhyme = normalize_word(last_line_words[-1])
+        # Получаем наш "слоеный" список
+        all_candidates = next_word_candidates(context, model, limit=50)
 
-        # Берем сразу большой пул слов (30 штук), чтобы было из чего выбирать
-        all_candidates = next_word_candidates(context, model, limit=30, rhyme_with=target_rhyme)
-
-        if not all_candidates:
-            self.statusBar().showMessage("AI is thinking hard... try again.", 3500)
-            return
+        if not all_candidates: return
 
         editor = self.current_editor()
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #454545; font-size: 13px; }
-            QMenu::item { padding: 5px 25px 5px 20px; }
+            QMenu { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #454545; }
             QMenu::item:selected { background-color: #094771; color: white; }
-            QMenu::separator { height: 1px; background: #454545; margin: 5px 10px; }
+            QMenu::separator { height: 1px; background: #444; margin: 4px; }
         """)
 
-        # 1. Базовые слова (Первые 8)
+        # 1. ТОП-8: Самые совместимые (артикли, союзы и т.д.)
         standard = all_candidates[:8]
         for word in standard:
-            action = QAction(f"{word}", self)
+            action = QAction(f"🔹 {word}", self)  # Синяя иконка для базы
             action.triggered.connect(lambda checked=False, w=word: self.insert_word(w))
             menu.addAction(action)
 
-        # 2. Больше слов
+        # 2. РАСШИРЕННОЕ МЕНЮ: Только качественный креатив
         if len(all_candidates) > 8:
             menu.addSeparator()
+            creative_menu = menu.addMenu("Poetic & Rare Words")
+            creative_menu.setStyleSheet(menu.styleSheet())
 
-            # Создаем подменю "More Creative"
-            creative_menu = menu.addMenu("More Creative / Rare")
-            creative_menu.setStyleSheet(menu.styleSheet())  # Копируем стиль
-
-            # Добавляем остальные слова (с 9-го по 30-е)
-            creative_pool = all_candidates[8:]
-            for word in creative_pool:
-                action = QAction(f" {word}", self)
+            # Берем слова, которые прошли наш фильтр в poetry_tools
+            wild_ones = all_candidates[8:38]  # Ограничим до 30 самых сочных
+            for word in wild_ones:
+                action = QAction(word, self)
                 action.triggered.connect(lambda checked=False, w=word: self.insert_word(w))
                 creative_menu.addAction(action)
-
-        # Позиционирование меню
         cursor_rect = editor.cursorRect()
-        global_pos = editor.mapToGlobal(cursor_rect.bottomRight())
-        menu.exec(global_pos)
-
+        menu.exec(editor.mapToGlobal(cursor_rect.bottomRight()))
     # ANTI-LOOP BULK MAGIC (CTRL+B)
     def bulk_magic(self) -> None:
         context = self.editor_text()
