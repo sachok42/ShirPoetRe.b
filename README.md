@@ -36,3 +36,8 @@ The system aims to support both technical precision (meter, rhyme, grammar) and 
 * Generate the beginning of a poem based on user-defined tags or themes
 * Generate a new line that preserves rhyme, stress pattern, and stylistic features of previous lines
 * Intelligent continuation suggestions for incomplete lines
+
+### Requirements
+* Is guaranteed to work on ubuntu
+* Execute via launching src/main.py
+* Requirements are listed in requirements.txt
